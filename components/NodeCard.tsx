@@ -7,17 +7,20 @@ import Image from 'next/image';
 interface NodeCardProps {
   node: {
     id: string;
-    type: 'sketch' | 'i2i' | 't2i' | 't2v';
+    type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 't2v' | 'lipsync' | 'image' | 'video';
     x: number;
     y: number;
     imageData?: string;
     imageUrl?: string;
     videoUrl?: string;
+    audioUrl?: string;
     prompt?: string;
+    dialogue?: string;
     settings?: {
       creativity?: number;
       characterRefs?: string[];
       environment?: string;
+      actionType?: string;
     };
   };
   onUpdate: (id: string, updates: any) => void;
