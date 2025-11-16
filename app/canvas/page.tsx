@@ -72,7 +72,7 @@ export default function CanvasPage() {
     if (!node) return;
 
     // Credit costs per node type
-    const creditCosts = {
+    const creditCosts: Record<string, number> = {
       'character': 2,
       'scene': 3,
       'sketch': 1,
@@ -80,6 +80,8 @@ export default function CanvasPage() {
       't2i': 5,
       't2v': 8,
       'lipsync': 3,
+      'image': 0,
+      'video': 0,
     };
 
     const requiredCredits = creditCosts[node.type] || 5;
