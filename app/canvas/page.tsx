@@ -19,6 +19,13 @@ export default function CanvasPage() {
   const [environment, setEnvironment] = useState<string>('none');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Initialize with test credits for beta
+  useEffect(() => {
+    if (credits === 0) {
+      setCredits(1000); // Give 1000 credits for testing
+    }
+  }, [credits, setCredits]);
+
   // Load character references
   useEffect(() => {
     const loadCharacterRefs = async () => {
