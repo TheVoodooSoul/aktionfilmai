@@ -32,6 +32,8 @@ export default function HomePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [currentFeatureIndex, setCurrentFeatureIndex] = useState(0);
+  const [showModal, setShowModal] = useState(false);
+  const [showThanks, setShowThanks] = useState(false);
 
   // Rotate features every 4 seconds
   useEffect(() => {
@@ -58,6 +60,8 @@ export default function HomePage() {
       if (response.ok) {
         setMessage('✓ Successfully joined the fight! Check your email.');
         setEmail('');
+        // Show the Gamma presentation modal
+        setShowModal(true);
       } else {
         setMessage(data.error || 'Failed to sign up');
       }
@@ -66,6 +70,11 @@ export default function HomePage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleCloseModal = () => {
+    setShowModal(false);
+    setShowThanks(false);
   };
 
   return (
@@ -247,6 +256,60 @@ export default function HomePage() {
           animation-fill-mode: both;
         }
       `}</style>
+
+      {/* Gamma Presentation Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm">
+          <div className="relative w-full max-w-4xl mx-4">
+            {/* Close Button */}
+            <button
+              onClick={handleCloseModal}
+              className="absolute -top-12 right-0 text-white hover:text-red-500 transition-colors text-lg font-bold"
+            >
+              ✕ Close
+            </button>
+
+            {/* Presentation */}
+            {!showThanks ? (
+              <div className="bg-black/50 rounded-xl overflow-hidden border border-zinc-800">
+                <iframe
+                  src="https://gamma.app/embed/9u1m1kg3obiqz8j"
+                  style={{ width: '100%', height: '450px', maxWidth: '700px', margin: '0 auto', display: 'block' }}
+                  allow="fullscreen"
+                  title="AktionFilmAI"
+                  className="rounded-lg"
+                />
+                <div className="p-6 text-center">
+                  <button
+                    onClick={() => setShowThanks(true)}
+                    className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors"
+                  >
+                    I've Watched It
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gradient-to-br from-red-900/50 to-black/50 rounded-xl p-12 text-center border border-red-600/50">
+                <h2 className="text-4xl font-black text-white mb-4">
+                  🎬 THANKS FOR JOINING!
+                </h2>
+                <p className="text-xl text-zinc-300 mb-6">
+                  We'll send you a beta invite this week.
+                </p>
+                <p className="text-zinc-400 mb-8">
+                  Get ready to choreograph the impossible.
+                </p>
+                <button
+                  onClick={handleCloseModal}
+                  className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-all hover:scale-105"
+                >
+                  CLOSE
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
