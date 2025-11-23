@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 
 interface AddNodeMenuProps {
-  onAddNode: (type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 't2v' | 'lipsync') => void;
+  onAddNode: (type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 't2v' | 'lipsync' | 'action-pose' | 'coherent-scene') => void;
 }
 
 export default function AddNodeMenu({ onAddNode }: AddNodeMenuProps) {
@@ -12,11 +12,14 @@ export default function AddNodeMenu({ onAddNode }: AddNodeMenuProps) {
 
   const nodeTypes = [
     { type: 'character' as const, icon: '👤', label: 'Character', description: 'Generate uncensored character (A2E)' },
+    { type: 'coherent-scene' as const, icon: '🎞️', label: 'Coherent Scene', description: '6 images → coherent scene (⏱️ 10-15 min)' },
     { type: 'scene' as const, icon: '🎭', label: 'Scene Builder', description: 'Compose action scene (RunPod)' },
+    { type: 'action-pose' as const, icon: '🥋', label: 'Action Pose', description: 'Generate action pose with LoRA' },
     { type: 'sketch' as const, icon: '✏️', label: 'Sketch to Image', description: 'Draw and convert to image' },
     { type: 'i2i' as const, icon: '🖼️', label: 'Image to Image', description: 'Transform existing image' },
     { type: 't2i' as const, icon: '✨', label: 'Text to Image', description: 'Generate from description' },
-    { type: 't2v' as const, icon: '🎬', label: 'Image to Video', description: 'Create video (A2E Wan 2.5)' },
+    { type: 'i2v' as const, icon: '🎬', label: 'Image to Video', description: '5-sec 720p video (A2E - 100 credits)' },
+    { type: 't2v' as const, icon: '🎤', label: 'Text to Video', description: 'Avatar talking video (50 credits)' },
     { type: 'lipsync' as const, icon: '🗣️', label: 'Lipsync', description: 'Add dialogue to character (A2E)' },
   ];
 

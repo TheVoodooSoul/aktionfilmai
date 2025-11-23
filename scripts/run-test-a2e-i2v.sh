@@ -1,0 +1,5 @@
+#!/bin/bash
+export A2E_API_KEY="sk_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2OTE4YzA1ZTQxNDc3ZDAwNThiMjM4MjIiLCJuYW1lIjoiYWRhbS5hY2Uud2F0c29uQGdtYWlsLmNvbSIsInJvbGUiOiJjb2luIiwiaWF0IjoxNzYzMjMxMjY0fQ.By4M6fRRAMLCwy_otDngmcAbNHh4n1Y-XMTYRjg9eeM"
+export A2E_API_URL="https://api.a2e.ai"
+
+node scripts/test-a2e-i2v.js

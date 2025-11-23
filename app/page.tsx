@@ -94,7 +94,7 @@ export default function HomePage() {
       <div className="relative z-20 min-h-screen flex flex-col items-center justify-center px-4 py-20">
         {/* Logo/Brand */}
         <div className="mb-8 animate-fade-in">
-          <div className="text-red-600 text-6xl mb-4 text-center">🎬</div>
+          <div className="text-red-600 text-6xl mb-4 text-center font-black">AF</div>
         </div>
 
         {/* Main Title */}
@@ -141,22 +141,24 @@ export default function HomePage() {
         </div>
 
         {/* Email Capture Form */}
-        <form onSubmit={handleSubmit} className="w-full max-w-md mb-8 space-y-4 animate-slide-up" style={{ animationDelay: '0.4s' }}>
-          <div className="flex gap-3">
+        <form onSubmit={handleSubmit} className="w-full max-w-2xl mb-8 space-y-4 animate-slide-up" style={{ animationDelay: '0.4s' }}>
+          <div className="flex gap-3 items-stretch">
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Enter your email"
               required
-              className="flex-1 px-6 py-4 bg-black/50 border-2 border-red-600/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-red-600 backdrop-blur-sm text-lg"
+              className="flex-1 min-w-0 px-6 py-3 bg-black/50 border-2 border-red-600/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-red-600 backdrop-blur-sm text-base"
+              style={{ height: '52px' }}
             />
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-8 py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-zinc-800 disabled:to-zinc-900 rounded-lg font-black text-lg tracking-wider transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2 shadow-lg shadow-red-600/50"
+              className="px-8 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-zinc-800 disabled:to-zinc-900 rounded-lg font-black text-base tracking-wider transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2 shadow-lg shadow-red-600/50 whitespace-nowrap"
+              style={{ height: '52px' }}
             >
-              {isSubmitting ? 'JOINING...' : 'JOIN THE FIGHT'}
+              {isSubmitting ? 'JOINING...' : 'JOIN BETA'}
               <ChevronRight />
             </button>
           </div>
@@ -167,32 +169,13 @@ export default function HomePage() {
           )}
         </form>
 
-        {/* Quick Links */}
-        <div className="flex gap-4 flex-wrap justify-center animate-slide-up" style={{ animationDelay: '0.6s' }}>
-          <Link
-            href="/canvas"
-            className="px-6 py-3 bg-black/50 border border-zinc-700 hover:border-red-600 rounded-lg backdrop-blur-sm transition-all hover:scale-105"
-          >
-            Launch Canvas
-          </Link>
-          <Link
-            href="/writers-room"
-            className="px-6 py-3 bg-black/50 border border-zinc-700 hover:border-red-600 rounded-lg backdrop-blur-sm transition-all hover:scale-105"
-          >
-            Writers Room
-          </Link>
-          <Link
-            href="/presets"
-            className="px-6 py-3 bg-black/50 border border-zinc-700 hover:border-red-600 rounded-lg backdrop-blur-sm transition-all hover:scale-105"
-          >
-            Preset Library
-          </Link>
-          <Link
-            href="/contest"
-            className="px-6 py-3 bg-black/50 border border-zinc-700 hover:border-red-600 rounded-lg backdrop-blur-sm transition-all hover:scale-105"
-          >
-            First Aktion Hero
-          </Link>
+        {/* Beta Access Notice */}
+        <div className="text-center animate-slide-up max-w-2xl" style={{ animationDelay: '0.6s' }}>
+          <div className="inline-block px-6 py-3 bg-red-600/20 border border-red-600/50 rounded-lg backdrop-blur-sm">
+            <p className="text-zinc-300 text-sm">
+              🔒 <span className="font-bold text-red-500">BETA ACCESS REQUIRED</span> — We'll send invites this week!
+            </p>
+          </div>
         </div>
 
         {/* Feature Grid (Bottom) */}

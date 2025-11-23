@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Sparkles, Save, Download } from 'lucide-react';
+import { ArrowLeft, Sparkles, Save, Download, Users } from 'lucide-react';
 
 export default function WritersRoomPage() {
   const [script, setScript] = useState('');
@@ -32,10 +32,17 @@ export default function WritersRoomPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            <Link
+              href="/writers-room/improv"
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+            >
+              <Users size={16} />
+              Improv Session
+            </Link>
             <button
               onClick={handleAISuggestion}
               disabled={isGenerating}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-zinc-800 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
             >
               <Sparkles size={16} />
               {isGenerating ? 'Thinking...' : 'AI Improve'}

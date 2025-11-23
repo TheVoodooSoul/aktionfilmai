@@ -200,9 +200,10 @@ aktionfilmai/
 
 Users can opt-in to share their outputs for model training:
 - Checkbox in profile settings
-- Receives 10% revenue share
+- Receives **10% OFF monthly membership**
 - All outputs saved to `generated_outputs` table
 - `allow_training` flag set to `true`
+- Discount automatically applied while opted in
 
 ## 📝 Next Steps
 

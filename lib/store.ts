@@ -73,6 +73,7 @@ export const useStore = create<AppState>((set) => ({
     tool: 'brush',
     brushSize: 5,
     color: '#000000',
+    smoothing: 0.5,
   },
   setDrawing: (drawing) => set((state) => ({
     drawing: { ...state.drawing, ...drawing },

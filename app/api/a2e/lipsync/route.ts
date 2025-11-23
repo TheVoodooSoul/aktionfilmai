@@ -3,7 +3,28 @@ import { supabase } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
   try {
-    const { image, audio, text, userId } = await req.json();
+    const { image, avatarId, audio, text, userId } = await req.json();
+
+    // Build request body - prefer avatar_id for better consistency
+    const requestBody: any = {
+      audio: audio || null,
+      text: text || null, // Will use TTS if audio not provided
+      voice_id: 'action-hero-male', // Can be customized
+      uncensored: true, // No content filtering for action dialogue
+    };
+
+    if (avatarId) {
+      requestBody.avatar_id = avatarId;
+      console.log('Using trained avatar:', avatarId);
+    } else if (image) {
+      requestBody.image = image;
+      console.log('Using image');
+    } else {
+      return NextResponse.json(
+        { error: 'Either image or avatarId is required' },
+        { status: 400 }
+      );
+    }
 
     // Call A2E.AI lipsync API
     const response = await fetch(`${process.env.A2E_API_URL}/lipsyncs/`, {
@@ -12,13 +33,7 @@ export async function POST(req: NextRequest) {
         'Authorization': `Bearer ${process.env.A2E_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        image,
-        audio: audio || null,
-        text: text || null, // Will use TTS if audio not provided
-        voice_id: 'action-hero-male', // Can be customized
-        uncensored: true, // No content filtering for action dialogue
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {

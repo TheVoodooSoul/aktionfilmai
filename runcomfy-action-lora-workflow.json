@@ -1,0 +1,131 @@
+{
+  "workflow": {
+    "nodes": [
+      {
+        "id": "checkpoint",
+        "type": "CheckpointLoaderSimple",
+        "inputs": {
+          "ckpt_name": "v1-5-pruned-emaonly.safetensors"
+        }
+      },
+      {
+        "id": "lora_loader",
+        "type": "LoraLoader",
+        "inputs": {
+          "lora_name": "{{LORA_NAME}}",
+          "strength_model": 0.8,
+          "strength_clip": 0.8,
+          "model": ["checkpoint", 0],
+          "clip": ["checkpoint", 1]
+        }
+      },
+      {
+        "id": "positive_prompt",
+        "type": "CLIPTextEncode",
+        "inputs": {
+          "text": "{{PROMPT}}, action scene, dynamic pose, cinematic lighting, high quality",
+          "clip": ["lora_loader", 1]
+        }
+      },
+      {
+        "id": "negative_prompt",
+        "type": "CLIPTextEncode",
+        "inputs": {
+          "text": "blurry, low quality, distorted, deformed",
+          "clip": ["lora_loader", 1]
+        }
+      },
+      {
+        "id": "sketch_image",
+        "type": "LoadImage",
+        "inputs": {
+          "image": "{{SKETCH_IMAGE}}"
+        }
+      },
+      {
+        "id": "controlnet_loader",
+        "type": "ControlNetLoader",
+        "inputs": {
+          "control_net_name": "control_v11p_sd15_scribble.pth"
+        }
+      },
+      {
+        "id": "apply_controlnet",
+        "type": "ControlNetApply",
+        "inputs": {
+          "strength": 0.7,
+          "conditioning": ["positive_prompt", 0],
+          "control_net": ["controlnet_loader", 0],
+          "image": ["sketch_image", 0]
+        }
+      },
+      {
+        "id": "sampler",
+        "type": "KSampler",
+        "inputs": {
+          "seed": "{{RANDOM_SEED}}",
+          "steps": 25,
+          "cfg": 7.5,
+          "sampler_name": "euler_ancestral",
+          "scheduler": "normal",
+          "denoise": 0.85,
+          "model": ["lora_loader", 0],
+          "positive": ["apply_controlnet", 0],
+          "negative": ["negative_prompt", 0],
+          "latent_image": ["empty_latent", 0]
+        }
+      },
+      {
+        "id": "empty_latent",
+        "type": "EmptyLatentImage",
+        "inputs": {
+          "width": 512,
+          "height": 512,
+          "batch_size": 1
+        }
+      },
+      {
+        "id": "vae_decode",
+        "type": "VAEDecode",
+        "inputs": {
+          "samples": ["sampler", 0],
+          "vae": ["checkpoint", 2]
+        }
+      },
+      {
+        "id": "save_image",
+        "type": "SaveImage",
+        "inputs": {
+          "images": ["vae_decode", 0],
+          "filename_prefix": "aktionfilm_action"
+        }
+      }
+    ]
+  },
+  "input_schema": {
+    "SKETCH_IMAGE": {
+      "type": "image",
+      "description": "Sketch drawing of the action pose"
+    },
+    "PROMPT": {
+      "type": "string",
+      "description": "Description of the action scene"
+    },
+    "ACTION_TYPE": {
+      "type": "string",
+      "description": "Type of action (punch, kick, or takedown)",
+      "enum": ["punch", "kick", "takedown"],
+      "default": "punch"
+    },
+    "LORA_NAME": {
+      "type": "string",
+      "description": "LoRA file name (auto-selected based on ACTION_TYPE)",
+      "default": "punching_loraWan22.safetensors"
+    },
+    "RANDOM_SEED": {
+      "type": "integer",
+      "description": "Random seed for generation",
+      "default": -1
+    }
+  }
+}

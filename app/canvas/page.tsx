@@ -6,25 +6,46 @@ import { supabase } from '@/lib/supabase';
 import DrawingCanvas from '@/components/DrawingCanvas';
 import NodeCard from '@/components/NodeCard';
 import AddNodeMenu from '@/components/AddNodeMenu';
+import NodeConnections from '@/components/NodeConnections';
+import EpicScenePanel from '@/components/EpicScenePanel';
 import { CanvasNode as NodeType } from '@/lib/types';
-import { Sparkles, User, Layers, Home } from 'lucide-react';
+import { Sparkles, User, Layers, Home, Settings, Link2, Plus } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import Link from 'next/link';
 
 export default function CanvasPage() {
-  const { canvas, addNode, updateNode, deleteNode, credits, setCredits, user } = useStore();
+  const { canvas, setCanvas, addNode, updateNode, deleteNode, credits, setCredits, user, setUser } = useStore();
   const [showDrawingModal, setShowDrawingModal] = useState(false);
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [characterRefs, setCharacterRefs] = useState<any[]>([]);
   const [environment, setEnvironment] = useState<string>('none');
   const [isLoading, setIsLoading] = useState(false);
+  const [showCharacterGen, setShowCharacterGen] = useState<number | null>(null);
+  const [characterPrompt, setCharacterPrompt] = useState('');
+  const [linkingMode, setLinkingMode] = useState(false);
+  const [linkSourceNode, setLinkSourceNode] = useState<string | null>(null);
 
-  // Initialize with test credits for beta
+  // Initialize super admin user and test credits
   useEffect(() => {
-    if (credits === 0) {
-      setCredits(1000); // Give 1000 credits for testing
+    // Auto-login super admin if no user exists
+    if (!user) {
+      const superAdmin = {
+        id: '00000000-0000-0000-0000-000000000001', // Valid UUID for super admin
+        email: 'adam@egopandacreative.com',
+        username: 'ArnoldStallone82',
+        pin: '4313',
+        role: 'superadmin',
+      };
+      setUser(superAdmin);
+
+      // Store in localStorage for persistence
+      localStorage.setItem('aktionfilm_user', JSON.stringify(superAdmin));
     }
-  }, [credits, setCredits]);
+
+    if (credits === 0) {
+      setCredits(9999); // Give unlimited credits for super admin
+    }
+  }, [credits, user]); // Zustand setters are stable and don't need to be in deps
 
   // Load character references
   useEffect(() => {
@@ -41,52 +62,120 @@ export default function CanvasPage() {
   }, [user]);
 
   // Create new node based on type
-  const createNewNode = (type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 't2v' | 'lipsync') => {
+  const createNewNode = (type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 't2v' | 'lipsync' | 'action-pose' | 'coherent-scene') => {
     const newNode: NodeType = {
       id: uuidv4(),
       type,
       x: Math.random() * 400 + 200,
       y: Math.random() * 200 + 150,
       width: 320,
-      height: 400,
+      height: type === 'coherent-scene' ? 600 : 400, // Taller for 6 images
       prompt: '',
+      coherentImages: type === 'coherent-scene' ? [] : undefined,
       settings: {
         creativity: 0.7,
         characterRefs: characterRefs.map(ref => ref.id),
+        actionType: type === 'action-pose' ? 'punch' : undefined,
       },
     };
     addNode(newNode);
 
-    // Open drawing modal for sketch type
-    if (type === 'sketch') {
+    // Open drawing modal for sketch and action-pose types
+    if (type === 'sketch' || type === 'action-pose') {
       setCurrentNodeId(newNode.id);
       setShowDrawingModal(true);
     }
   };
 
   // Save sketch from drawing canvas
-  const handleSaveSketch = (imageData: string) => {
+  const handleSaveSketch = (imageData: string, prompt?: string) => {
     if (currentNodeId) {
-      updateNode(currentNodeId, { imageData });
+      updateNode(currentNodeId, {
+        imageData,
+        ...(prompt && { prompt }) // Save prompt if provided
+      });
       setShowDrawingModal(false);
       setCurrentNodeId(null);
     }
   };
 
+  // Save output to database if user opted in
+  const saveOutputToDatabase = async (nodeId: string, outputUrl: string, outputType: string) => {
+    if (!user) return;
+
+    try {
+      // Check if user has opted in
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('training_opt_in')
+        .eq('id', user.id)
+        .single();
+
+      if (!profile?.training_opt_in) return;
+
+      const node = canvas.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      // Save to generated_outputs table
+      await supabase.from('generated_outputs').insert({
+        user_id: user.id,
+        output_type: outputType,
+        output_url: outputUrl,
+        prompt_data: {
+          prompt: node.prompt,
+          settings: node.settings,
+          type: node.type,
+        },
+        allow_training: true,
+      });
+    } catch (error) {
+      console.error('Error saving output:', error);
+    }
+  };
+
+  // Process prompt to replace @ tags with character names + outfits
+  const processPrompt = (prompt: string): string => {
+    if (!prompt) return '';
+
+    let processedPrompt = prompt;
+    characterRefs.forEach(ref => {
+      if (ref.name) {
+        const tag = ref.name; // e.g., "@adam"
+        const fullDescription = ref.outfit
+          ? `${tag.replace('@', '')} wearing ${ref.outfit}`
+          : tag.replace('@', '');
+
+        // Replace all instances of the tag
+        const regex = new RegExp(tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        processedPrompt = processedPrompt.replace(regex, fullDescription);
+      }
+    });
+
+    return processedPrompt;
+  };
+
   // Generate using appropriate API based on node type
   const handleGenerate = async (nodeId: string) => {
+    console.log('HANDLEGENERATE CALLED WITH NODE ID:', nodeId);
     const node = canvas.nodes.find(n => n.id === nodeId);
-    if (!node) return;
+    console.log('FOUND NODE:', node);
+    if (!node) {
+      console.log('NO NODE FOUND - RETURNING');
+      return;
+    }
 
     // Credit costs per node type
     const creditCosts: Record<string, number> = {
       'character': 2,
       'scene': 3,
+      'action-pose': 2,
       'sketch': 1,
       'i2i': 5,
-      't2i': 5,
-      't2v': 8,
+      't2i': 2, // A2E character generation
+      'i2v': 8,
+      't2v': 5, // A2E talking portrait
       'lipsync': 3,
+      'coherent-scene': 10, // High cost due to 10-15 min processing
       'image': 0,
       'video': 0,
     };
@@ -99,13 +188,47 @@ export default function CanvasPage() {
 
     setIsLoading(true);
     try {
+      // Process prompt to include character outfit information
+      const processedPrompt = processPrompt(node.prompt || '');
+      console.log('GENERATE - Node prompt:', node.prompt, 'Processed:', processedPrompt);
+
       let endpoint = '';
       let body: any = {
         userId: user?.id,
-        prompt: node.prompt || '',
+        prompt: processedPrompt,
       };
 
+      // Handle file uploads for character node
+      if (node.type === 'character' && (node as any).uploadedFile) {
+        const file = (node as any).uploadedFile;
+        const fileType = (node as any).uploadedFileType;
+
+        // Upload to Supabase storage
+        const fileName = `${user.id}/${Date.now()}-${file.name}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('character-uploads')
+          .upload(fileName, file);
+
+        if (uploadError) {
+          alert('Failed to upload file: ' + uploadError.message);
+          return;
+        }
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('character-uploads')
+          .getPublicUrl(fileName);
+
+        // Add to body for avatar training
+        if (fileType === 'video') {
+          body.uploadedVideo = publicUrl;
+        } else {
+          body.uploadedImage = publicUrl;
+        }
+      }
+
       // Route to appropriate API based on node type
+      console.log('NODE TYPE:', node.type);
       switch (node.type) {
         case 'character':
           endpoint = '/api/a2e/character';
@@ -113,30 +236,57 @@ export default function CanvasPage() {
           break;
 
         case 'scene':
-          endpoint = '/api/runpod/scene-builder';
-          body.characters = characterRefs.map(ref => ref.image_url);
-          body.environment = environment;
-          body.action = node.settings?.actionType || 'fight';
-          body.creativity = node.settings?.creativity || 0.7;
+          console.log('HIT SCENE CASE - ROUTING TO A2E NANOBANANA');
+          endpoint = '/api/a2e/nanobanana';
+          // Include character references
+          if (node.settings?.characterRefs && node.settings.characterRefs.length > 0) {
+            const selectedCharRefs = characterRefs.filter(ref =>
+              node.settings!.characterRefs!.includes(ref.id)
+            );
+            body.characterRefs = selectedCharRefs;
+          } else {
+            // Use all available character refs
+            body.characterRefs = characterRefs;
+          }
+          // Build prompt with action type and environment
+          const actionType = node.settings?.actionType || 'fight';
+          const envPrompt = environment !== 'none' ? ` in ${environment}` : '';
+          body.prompt = `${processedPrompt || actionType + ' scene'}${envPrompt}, cinematic action, dynamic composition, high quality`;
+          break;
+
+        case 'action-pose':
+          endpoint = '/api/fal/action-lora';
+          body.image = node.imageData;
+          body.actionType = node.settings?.actionType || 'punch';
           break;
 
         case 'sketch':
         case 'i2i':
-          endpoint = '/api/runcomfy/preview';
-          body.image = node.imageData;
+          console.log('HIT SKETCH/I2I CASE - ROUTING TO REPLICATE CONTROLNET SCRIBBLE');
+          endpoint = '/api/replicate/sketch-to-image';
+          body.image = node.imageData; // Base64 sketch data
           body.creativity = node.settings?.creativity || 0.7;
-          body.characterRefs = characterRefs.map(ref => ref.image_url);
-          body.environment = environment;
+          // Include character references if selected
+          if (node.settings?.characterRefs && node.settings.characterRefs.length > 0) {
+            const selectedCharRefs = characterRefs.filter(ref =>
+              node.settings!.characterRefs!.includes(ref.id)
+            );
+            // Build character info array with names and outfits
+            body.characterInfo = selectedCharRefs.map(ref => ({
+              name: ref.name,
+              outfit: (ref as any).outfit || 'action outfit'
+            }));
+          }
           break;
 
         case 't2i':
-          endpoint = '/api/runcomfy/preview';
+          // Use A2E for consistent character generation
+          endpoint = '/api/a2e/character';
+          body.prompt = processedPrompt;
           body.creativity = node.settings?.creativity || 0.7;
-          body.characterRefs = characterRefs.map(ref => ref.image_url);
-          body.environment = environment;
           break;
 
-        case 't2v':
+        case 'i2v':
           endpoint = '/api/a2e/i2v';
           body.image = node.imageUrl || node.imageData;
           break;
@@ -145,6 +295,34 @@ export default function CanvasPage() {
           endpoint = '/api/a2e/lipsync';
           body.image = node.imageUrl || node.imageData;
           body.text = node.dialogue || '';
+          break;
+
+        case 't2v':
+          // Talking Portrait - A2E talking video
+          endpoint = '/api/a2e/t2v';
+          body.text = node.dialogue || node.prompt || '';
+          // If character has avatar_id, use it; otherwise generate from prompt
+          if ((node as any).avatarId) {
+            body.avatar_id = (node as any).avatarId;
+          } else {
+            body.prompt = processedPrompt;
+          }
+          break;
+
+        case 'coherent-scene':
+          // Validate 6 images are uploaded
+          if (!node.coherentImages || node.coherentImages.length !== 6) {
+            alert('⚠️ Please upload all 6 images before generating!');
+            setIsLoading(false);
+            return;
+          }
+          // Show time warning
+          if (!confirm('⏱️ WARNING: Coherent scene generation takes 10-15 minutes.\n\nThis will use 10 credits. Continue?')) {
+            setIsLoading(false);
+            return;
+          }
+          endpoint = '/api/runcomfy/coherent-scene';
+          body.images = node.coherentImages;
           break;
 
         default:
@@ -161,12 +339,23 @@ export default function CanvasPage() {
 
       const data = await response.json();
       if (data.output_url) {
-        if (node.type === 't2v' || node.type === 'lipsync') {
+        const outputType = node.type === 'i2v' || node.type === 'lipsync' ? 'video' : 'image';
+
+        if (outputType === 'video') {
           updateNode(nodeId, { videoUrl: data.output_url });
         } else {
-          updateNode(nodeId, { imageUrl: data.output_url });
+          // Store avatar_id if this is a character generation
+          const nodeUpdate: any = { imageUrl: data.output_url };
+          if (node.type === 'character' && data.avatar_id) {
+            nodeUpdate.avatarId = data.avatar_id;
+          }
+          updateNode(nodeId, nodeUpdate);
         }
+
         setCredits(credits - requiredCredits);
+
+        // Save to database if user opted in
+        await saveOutputToDatabase(nodeId, data.output_url, outputType);
       } else {
         alert('Failed to generate: ' + (data.error || 'Unknown error'));
       }
@@ -178,42 +367,360 @@ export default function CanvasPage() {
     }
   };
 
+  // Handle node click for sequence linking
+  const handleNodeClick = (nodeId: string) => {
+    if (linkingMode) {
+      const node = canvas.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      // Can only link image nodes
+      if (!node.imageUrl && !node.videoUrl) {
+        alert('Can only link nodes with generated content');
+        return;
+      }
+
+      if (!linkSourceNode) {
+        // First click - select source node
+        setLinkSourceNode(nodeId);
+        alert('Source frame selected. Now click the target frame to connect.');
+      } else if (linkSourceNode === nodeId) {
+        // Clicking same node - deselect
+        setLinkSourceNode(null);
+        alert('Selection cancelled');
+      } else {
+        // Second click - create connection
+        updateNode(linkSourceNode, {
+          connections: { next: nodeId }
+        });
+        alert('✅ Nodes connected! You can now generate a sequence.');
+        setLinkSourceNode(null);
+        setLinkingMode(false);
+      }
+    } else {
+      // Normal click - just select
+      updateNode(nodeId, {});
+    }
+  };
+
+  // Generate sequence video from connected nodes
+  const handleGenerateSequence = async (sourceNodeId: string) => {
+    const sourceNode = canvas.nodes.find(n => n.id === sourceNodeId);
+    if (!sourceNode || !sourceNode.connections?.next) {
+      alert('No sequence connection found');
+      return;
+    }
+
+    const targetNode = canvas.nodes.find(n => n.id === sourceNode.connections?.next);
+    if (!targetNode) {
+      alert('Target node not found');
+      return;
+    }
+
+    if (!sourceNode.imageUrl || !targetNode.imageUrl) {
+      alert('Both frames must have generated images');
+      return;
+    }
+
+    const creditCost = 10;
+    if (credits < creditCost) {
+      alert(`Insufficient credits! Sequence generation costs ${creditCost} credits.`);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/runcomfy/sequence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstFrame: sourceNode.imageUrl,
+          lastFrame: targetNode.imageUrl,
+          userId: user?.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.output_url) {
+        // Create a new video node between the two frames
+        const newNode: NodeType = {
+          id: uuidv4(),
+          type: 'video',
+          x: (sourceNode.x + targetNode.x) / 2,
+          y: (sourceNode.y + targetNode.y) / 2 + 50,
+          width: 320,
+          height: 400,
+          videoUrl: data.output_url,
+        };
+        addNode(newNode);
+        setCredits(credits - creditCost);
+        alert('✅ Sequence video generated!');
+      } else {
+        alert('Failed to generate sequence');
+      }
+    } catch (error) {
+      console.error('Sequence generation error:', error);
+      alert('Failed to generate sequence');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Epic Scene - Generate from 6 images
+  const handleEpicSceneGenerate = async (images: string[]) => {
+    if (!user) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/runcomfy/coherent-scene', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          images,
+          userId: user.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.output_url) {
+        // Create a new image node with the epic scene
+        const newNode: NodeType = {
+          id: uuidv4(),
+          type: 'image',
+          x: Math.random() * 400 + 200,
+          y: Math.random() * 200 + 150,
+          width: 320,
+          height: 400,
+          prompt: 'Epic Scene (6 images)',
+          imageUrl: data.output_url,
+          settings: {},
+        };
+        addNode(newNode);
+
+        setCredits(credits - 10);
+        alert('✅ Epic scene generated successfully!');
+      } else {
+        alert('Failed to generate epic scene: ' + (data.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Epic scene generation error:', error);
+      alert('Failed to generate epic scene');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Save node as character reference
+  const handleSaveAsReference = async (nodeId: string) => {
+    const node = canvas.nodes.find(n => n.id === nodeId);
+    if (!node || !node.imageUrl) {
+      alert('No image to save as reference');
+      return;
+    }
+
+    if (!user) {
+      alert('Please log in to save character references');
+      return;
+    }
+
+    if (characterRefs.length >= 2) {
+      alert('Maximum 2 character references allowed. Delete one first.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Prompt for character name
+      const name = prompt('Enter character name (e.g., @hero, @villain):');
+      if (!name) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Save to database
+      const insertData: any = {
+        user_id: user.id,
+        name: name.replace('@', ''), // Remove @ if included
+        image_url: node.imageUrl,
+        outfit_description: node.prompt || '',
+      };
+
+      // Add avatar_id if available
+      if ((node as any).avatarId) {
+        insertData.avatar_id = (node as any).avatarId;
+        insertData.avatar_status = 'training'; // Avatar is training
+      }
+
+      const { data, error } = await supabase
+        .from('character_references')
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Add to local state
+      setCharacterRefs([...characterRefs, data]);
+      alert(`✅ Saved as @${data.name}`);
+    } catch (error) {
+      console.error('Error saving character reference:', error);
+      alert('Failed to save character reference');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Upload character reference
   const handleCharacterRefUpload = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
-    if (!user || characterRefs.length >= 2) return;
+    console.log('Upload triggered! File:', e.target.files?.[0]);
+    console.log('User:', user);
+    console.log('Current refs:', characterRefs);
+
+    if (!user) {
+      alert('Please wait for user to load...');
+      return;
+    }
+
+    if (characterRefs.length >= 2) {
+      alert('Maximum 2 character references allowed');
+      return;
+    }
 
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be less than 5MB');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const fileName = `${user.id}/${uuidv4()}.${file.name.split('.').pop()}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('character-refs')
-        .upload(fileName, file);
+      // Create a temporary URL for immediate preview
+      const tempUrl = URL.createObjectURL(file);
 
-      if (uploadError) throw uploadError;
+      // Add temporary character ref for immediate feedback
+      const tempRef = {
+        id: `temp-${Date.now()}`,
+        user_id: user.id,
+        name: `Fighter ${index + 1}`,
+        image_url: tempUrl,
+        created_at: new Date().toISOString(),
+      };
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('character-refs')
-        .getPublicUrl(fileName);
+      setCharacterRefs([...characterRefs, tempRef]);
 
-      const { data } = await supabase
-        .from('character_references')
-        .insert({
-          user_id: user.id,
-          name: `Character ${index + 1}`,
-          image_url: publicUrl,
-        })
-        .select()
-        .single();
+      // Try to upload to Supabase (will fail if bucket doesn't exist, but that's ok for now)
+      try {
+        const fileName = `${user.id}/${uuidv4()}.${file.name.split('.').pop()}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('character-refs')
+          .upload(fileName, file);
 
-      if (data) {
-        setCharacterRefs([...characterRefs, data]);
+        if (uploadError) {
+          console.warn('Supabase storage not configured:', uploadError);
+          // Keep the temp URL - it will work for this session
+          alert('Character reference added! (Using local preview - Supabase storage not configured)');
+          return;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('character-refs')
+          .getPublicUrl(fileName);
+
+        // Try to save to database
+        const { data, error: dbError } = await supabase
+          .from('character_references')
+          .insert({
+            user_id: user.id,
+            name: `Fighter ${index + 1}`,
+            image_url: publicUrl,
+          })
+          .select()
+          .single();
+
+        if (dbError) {
+          console.warn('Database save failed:', dbError);
+          alert('Character reference added! (Using local preview - Database not configured)');
+          return;
+        }
+
+        if (data) {
+          // Replace temp ref with real one
+          setCharacterRefs(characterRefs.filter(ref => ref.id !== tempRef.id).concat([data]));
+          alert('Character reference uploaded successfully!');
+        }
+      } catch (storageError) {
+        console.warn('Storage error:', storageError);
+        alert('Character reference added! (Using local preview)');
       }
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Failed to upload character reference');
+      alert('Failed to upload: ' + (error as Error).message);
+      setIsLoading(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Generate character using A2E API
+  const handleGenerateCharacter = async (index: number) => {
+    if (!user) {
+      alert('Please wait for user to load...');
+      return;
+    }
+
+    if (!characterPrompt.trim()) {
+      alert('Please enter a character description');
+      return;
+    }
+
+    if (credits < 2) {
+      alert('Insufficient credits! You need 2 credits to generate a character.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/a2e/character', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: characterPrompt,
+          userId: user.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.output_url) {
+        const newRef = {
+          id: `gen-${Date.now()}`,
+          user_id: user.id,
+          name: `Fighter ${index + 1}`,
+          image_url: data.output_url,
+          created_at: new Date().toISOString(),
+        };
+
+        setCharacterRefs([...characterRefs, newRef]);
+        setCredits(credits - 2);
+        setCharacterPrompt('');
+        setShowCharacterGen(null);
+        alert('Character generated successfully!');
+      } else {
+        alert('Failed to generate character: ' + (data.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Character generation error:', error);
+      alert('Failed to generate character. Check console for details.');
     } finally {
       setIsLoading(false);
     }
@@ -229,6 +736,12 @@ export default function CanvasPage() {
               <Home size={20} />
             </Link>
             <h1 className="text-lg font-bold text-white">Canvas</h1>
+            <Link href="/contest" className="text-zinc-400 hover:text-white transition-colors text-sm">
+              Contest
+            </Link>
+            <Link href="/settings" className="text-zinc-400 hover:text-white transition-colors">
+              <Settings size={18} />
+            </Link>
           </div>
 
           <div className="flex items-center gap-4">
@@ -251,11 +764,48 @@ export default function CanvasPage() {
             </div>
 
             {/* Credits */}
-            <div className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center gap-2">
-              <Sparkles size={16} className="text-red-500" />
-              <span className="text-sm font-medium">{credits}</span>
-              <span className="text-xs text-zinc-500">credits</span>
+            <div className="flex items-center gap-2">
+              <div className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center gap-2">
+                <Sparkles size={16} className="text-red-500" />
+                <span className="text-sm font-medium">{credits}</span>
+                <span className="text-xs text-zinc-500">credits</span>
+                {(user as any)?.role === 'superadmin' && (
+                  <span className="text-xs text-red-500 font-semibold">∞</span>
+                )}
+              </div>
+              {(user as any)?.role === 'superadmin' && (
+                <button
+                  onClick={() => {
+                    setCredits(credits + 1000);
+                  }}
+                  className="px-2 py-1.5 bg-red-600 hover:bg-red-700 border border-red-500 rounded-lg transition-colors"
+                  title="Add 1000 credits"
+                >
+                  <Plus size={16} className="text-white" />
+                </button>
+              )}
             </div>
+
+            <button
+              onClick={() => {
+                setLinkingMode(!linkingMode);
+                if (!linkingMode) {
+                  setLinkSourceNode(null);
+                  alert('Linking mode ON: Click first frame → Click second frame to create sequence connection');
+                } else {
+                  setLinkSourceNode(null);
+                  alert('Linking mode OFF');
+                }
+              }}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                linkingMode
+                  ? 'bg-green-600 hover:bg-green-700'
+                  : 'bg-zinc-800 hover:bg-zinc-700'
+              }`}
+            >
+              <Link2 size={16} />
+              {linkingMode ? 'Linking...' : 'Link Frames'}
+            </button>
 
             <button className="px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors">
               Buy Credits
@@ -276,22 +826,92 @@ export default function CanvasPage() {
           <div className="space-y-2">
             <label className="text-xs text-zinc-500">Character 1</label>
             {characterRefs[0] ? (
-              <div className="relative aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800">
-                <img src={characterRefs[0].image_url} alt="Character 1" className="w-full h-full object-cover" />
-              </div>
-            ) : (
-              <label className="block aspect-square bg-zinc-900 border-2 border-dashed border-zinc-800 rounded-lg hover:border-red-600 transition-colors cursor-pointer">
-                <div className="flex flex-col items-center justify-center h-full text-zinc-600 hover:text-red-500">
-                  <User size={32} />
-                  <span className="text-xs mt-2">Upload Fighter 1</span>
+              <div className="space-y-1">
+                <div className="relative aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800">
+                  <img src={characterRefs[0].image_url} alt="Character 1" className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => setCharacterRefs(characterRefs.filter((_, i) => i !== 0))}
+                    className="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white rounded-full p-1 text-xs"
+                  >
+                    ✕
+                  </button>
                 </div>
                 <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleCharacterRefUpload(e, 0)}
-                  className="hidden"
+                  type="text"
+                  value={characterRefs[0].name || ''}
+                  onChange={(e) => {
+                    const updated = [...characterRefs];
+                    updated[0] = { ...updated[0], name: e.target.value };
+                    setCharacterRefs(updated);
+                  }}
+                  placeholder="Name (e.g., @adam)"
+                  className="w-full px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600"
                 />
-              </label>
+                <textarea
+                  value={characterRefs[0].outfit || ''}
+                  onChange={(e) => {
+                    const updated = [...characterRefs];
+                    updated[0] = { ...updated[0], outfit: e.target.value };
+                    setCharacterRefs(updated);
+                  }}
+                  placeholder="Costume/Outfit (e.g., black ninja suit, tactical gear)"
+                  className="w-full px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+                  rows={2}
+                />
+                <p className="text-[10px] text-zinc-600">Auto-added: "{characterRefs[0].name || '@fighter1'} {characterRefs[0].outfit ? 'in ' + characterRefs[0].outfit : ''}"</p>
+              </div>
+            ) : showCharacterGen === 0 ? (
+              <div className="aspect-square bg-zinc-900 border-2 border-red-600 rounded-lg p-3 flex flex-col gap-2">
+                <textarea
+                  value={characterPrompt}
+                  onChange={(e) => setCharacterPrompt(e.target.value)}
+                  placeholder="Describe your fighter... (e.g., muscular bald man with scars)"
+                  className="flex-1 px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+                />
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => handleGenerateCharacter(0)}
+                    disabled={isLoading}
+                    className="flex-1 px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium disabled:opacity-50"
+                  >
+                    Generate (2cr)
+                  </button>
+                  <button
+                    onClick={() => setShowCharacterGen(null)}
+                    className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="block aspect-square bg-zinc-900 border-2 border-dashed border-zinc-800 rounded-lg hover:border-red-600 transition-colors cursor-pointer">
+                  <div className="flex flex-col items-center justify-center h-full text-zinc-600 hover:text-red-500">
+                    <User size={32} />
+                    <span className="text-xs mt-2">Upload Fighter 1</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      console.log('Character 1 file selected');
+                      handleCharacterRefUpload(e, 0);
+                    }}
+                    className="hidden"
+                    onClick={(e) => {
+                      console.log('Character 1 input clicked');
+                      (e.target as HTMLInputElement).value = '';
+                    }}
+                  />
+                </label>
+                <button
+                  onClick={() => setShowCharacterGen(0)}
+                  className="w-full px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs font-medium transition-colors"
+                >
+                  Or Generate with AI
+                </button>
+              </div>
             )}
           </div>
 
@@ -299,57 +919,189 @@ export default function CanvasPage() {
           <div className="space-y-2">
             <label className="text-xs text-zinc-500">Character 2</label>
             {characterRefs[1] ? (
-              <div className="relative aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800">
-                <img src={characterRefs[1].image_url} alt="Character 2" className="w-full h-full object-cover" />
-              </div>
-            ) : (
-              <label className="block aspect-square bg-zinc-900 border-2 border-dashed border-zinc-800 rounded-lg hover:border-red-600 transition-colors cursor-pointer">
-                <div className="flex flex-col items-center justify-center h-full text-zinc-600 hover:text-red-500">
-                  <User size={32} />
-                  <span className="text-xs mt-2">Upload Fighter 2</span>
+              <div className="space-y-1">
+                <div className="relative aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800">
+                  <img src={characterRefs[1].image_url} alt="Character 2" className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => setCharacterRefs(characterRefs.filter((_, i) => i !== 1))}
+                    className="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white rounded-full p-1 text-xs"
+                  >
+                    ✕
+                  </button>
                 </div>
                 <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleCharacterRefUpload(e, 1)}
-                  className="hidden"
-                  disabled={characterRefs.length < 1}
+                  type="text"
+                  value={characterRefs[1].name || ''}
+                  onChange={(e) => {
+                    const updated = [...characterRefs];
+                    updated[1] = { ...updated[1], name: e.target.value };
+                    setCharacterRefs(updated);
+                  }}
+                  placeholder="Name (e.g., @opponent)"
+                  className="w-full px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600"
                 />
-              </label>
+                <textarea
+                  value={characterRefs[1].outfit || ''}
+                  onChange={(e) => {
+                    const updated = [...characterRefs];
+                    updated[1] = { ...updated[1], outfit: e.target.value };
+                    setCharacterRefs(updated);
+                  }}
+                  placeholder="Costume/Outfit (e.g., viking armor, leather jacket)"
+                  className="w-full px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+                  rows={2}
+                />
+                <p className="text-[10px] text-zinc-600">Auto-added: "{characterRefs[1].name || '@fighter2'} {characterRefs[1].outfit ? 'in ' + characterRefs[1].outfit : ''}"</p>
+              </div>
+            ) : showCharacterGen === 1 ? (
+              <div className="aspect-square bg-zinc-900 border-2 border-red-600 rounded-lg p-3 flex flex-col gap-2">
+                <textarea
+                  value={characterPrompt}
+                  onChange={(e) => setCharacterPrompt(e.target.value)}
+                  placeholder="Describe your fighter... (e.g., tough woman with mohawk)"
+                  className="flex-1 px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+                />
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => handleGenerateCharacter(1)}
+                    disabled={isLoading}
+                    className="flex-1 px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-medium disabled:opacity-50"
+                  >
+                    Generate (2cr)
+                  </button>
+                  <button
+                    onClick={() => setShowCharacterGen(null)}
+                    className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="block aspect-square bg-zinc-900 border-2 border-dashed border-zinc-800 rounded-lg hover:border-red-600 transition-colors cursor-pointer">
+                  <div className="flex flex-col items-center justify-center h-full text-zinc-600 hover:text-red-500">
+                    <User size={32} />
+                    <span className="text-xs mt-2">Upload Fighter 2</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      console.log('Character 2 file selected');
+                      handleCharacterRefUpload(e, 1);
+                    }}
+                    className="hidden"
+                    onClick={(e) => {
+                      console.log('Character 2 input clicked');
+                      (e.target as HTMLInputElement).value = '';
+                    }}
+                  />
+                </label>
+                <button
+                  onClick={() => setShowCharacterGen(1)}
+                  className="w-full px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs font-medium transition-colors"
+                >
+                  Or Generate with AI
+                </button>
+              </div>
             )}
           </div>
 
-          <p className="text-xs text-zinc-600 pt-2">
-            Upload 2 characters for fight scenes. These will be used for consistency across all generations.
-          </p>
+          <div className="mt-3 p-2 bg-zinc-900/50 border border-zinc-800 rounded text-[10px] text-zinc-500">
+            <p className="font-semibold text-zinc-400 mb-1">💡 Pro Tip:</p>
+            <p className="mb-1">Name your characters with @ tags and add their costume details:</p>
+            <p className="text-zinc-400 mt-1">• @adam in ninja suit</p>
+            <p className="text-zinc-400">• @opponent in viking armor</p>
+            <p className="mt-2 text-zinc-400 italic">Then in prompts: "@adam kicks @opponent in the chest"</p>
+            <p className="mt-1 text-yellow-600">The AI will automatically know what each character is wearing!</p>
+          </div>
         </div>
       </div>
 
       {/* Main Canvas Area */}
-      <div className="ml-64 pt-[57px] min-h-screen">
+      <div className="ml-64 pt-[57px] min-h-screen relative">
+        {/* Zoom Controls */}
+        <div className="fixed left-64 top-20 z-30 flex flex-col gap-2 bg-zinc-900 border border-zinc-800 rounded-lg p-2">
+          <button
+            onClick={() => {
+              const newScale = Math.min(canvas.scale + 0.1, 2);
+              setCanvas({ ...canvas, scale: newScale });
+            }}
+            className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-sm font-bold"
+            title="Zoom In"
+          >
+            +
+          </button>
+          <div className="text-xs text-center text-zinc-500">
+            {Math.round(canvas.scale * 100)}%
+          </div>
+          <button
+            onClick={() => {
+              const newScale = Math.max(canvas.scale - 0.1, 0.3);
+              setCanvas({ ...canvas, scale: newScale });
+            }}
+            className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-sm font-bold"
+            title="Zoom Out"
+          >
+            −
+          </button>
+          <button
+            onClick={() => setCanvas({ ...canvas, scale: 1 })}
+            className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs"
+            title="Reset Zoom"
+          >
+            100%
+          </button>
+        </div>
+
         <div
-          className="relative w-full h-screen overflow-hidden bg-black"
+          className="relative w-full h-screen overflow-auto bg-black"
           style={{
             backgroundImage: 'radial-gradient(circle, #18181b 1px, transparent 1px)',
             backgroundSize: '30px 30px',
           }}
         >
-          {/* Nodes */}
-          {canvas.nodes.map((node) => (
-            <NodeCard
-              key={node.id}
-              node={node}
-              onUpdate={updateNode}
-              onDelete={deleteNode}
-              onGenerate={handleGenerate}
-              isSelected={canvas.selectedNodeId === node.id}
-              onClick={() => updateNode(node.id, {})}
+          {/* Nodes Container with Zoom */}
+          <div
+            style={{
+              transform: `scale(${canvas.scale})`,
+              transformOrigin: 'top left',
+              minWidth: '100%',
+              minHeight: '100%',
+            }}
+          >
+            {/* Render connection lines */}
+            <NodeConnections
+              nodes={canvas.nodes}
+              characterRefs={characterRefs}
             />
-          ))}
 
-          {/* Empty State */}
+            {canvas.nodes.map((node) => (
+              <NodeCard
+                key={node.id}
+                node={node}
+                onUpdate={updateNode}
+                onDelete={deleteNode}
+                onGenerate={handleGenerate}
+                onEdit={(nodeId) => {
+                  setCurrentNodeId(nodeId);
+                  setShowDrawingModal(true);
+                }}
+                isSelected={canvas.selectedNodeId === node.id || linkSourceNode === node.id}
+                onClick={() => handleNodeClick(node.id)}
+                characterRefs={characterRefs}
+                onSaveAsReference={handleSaveAsReference}
+                onGenerateSequence={node.connections?.next ? () => handleGenerateSequence(node.id) : undefined}
+                isLinkingMode={linkingMode}
+                isLinkSource={linkSourceNode === node.id}
+              />
+            ))}
+          </div>
+
+          {/* Empty State - Only show when no nodes have been created */}
           {canvas.nodes.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center">
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center space-y-4 max-w-md">
                 <div className="text-6xl mb-4">🎬</div>
                 <h2 className="text-2xl font-bold text-zinc-700">Start Creating</h2>
@@ -375,26 +1127,30 @@ export default function CanvasPage() {
       {/* Add Node Menu */}
       <AddNodeMenu onAddNode={createNewNode} />
 
-      {/* Drawing Modal */}
+      {/* Epic Scene Panel */}
+      <EpicScenePanel onGenerate={handleEpicSceneGenerate} isGenerating={isLoading} />
+
+      {/* Drawing Modal - Full Screen */}
       {showDrawingModal && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-8">
-          <div className="bg-[#1a1a1a] rounded-xl p-6 max-w-4xl w-full border border-zinc-800">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Draw Your Sketch</h2>
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 overflow-auto">
+          <div className="min-h-screen p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-white">Draw Your Sketch</h2>
               <button
                 onClick={() => {
                   setShowDrawingModal(false);
                   setCurrentNodeId(null);
                 }}
-                className="text-zinc-400 hover:text-white text-2xl"
+                className="text-zinc-400 hover:text-white text-2xl px-4 py-2"
               >
-                ✕
+                ✕ Close
               </button>
             </div>
             <DrawingCanvas
-              width={800}
-              height={600}
+              width={1200}
+              height={700}
               onSave={handleSaveSketch}
+              nodeId={currentNodeId || undefined}
             />
           </div>
         </div>
