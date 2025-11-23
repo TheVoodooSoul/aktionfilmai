@@ -44,12 +44,8 @@ export async function POST(request: NextRequest) {
       .from('profiles')
       .upsert({
         id: authData.user.id,
-        email: email,
-        username: email.split('@')[0],
         credits: 9999,
         subscription_tier: 'superadmin',
-        role: 'superadmin',
-        created_at: new Date().toISOString(),
       });
 
     if (profileError) {
@@ -66,7 +62,7 @@ export async function POST(request: NextRequest) {
         id: authData.user.id,
         email: authData.user.email,
         credits: 9999,
-        role: 'superadmin',
+        tier: 'superadmin',
       },
     });
   } catch (error: any) {
