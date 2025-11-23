@@ -8,22 +8,13 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const { opt_in } = await request.json();
+    const { opt_in, userId } = await request.json();
 
-    // Get user from session/auth header
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID required' }, { status: 400 });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Update user's opt-in status
+    // Update user's opt-in status in PROFILES table
     const updateData: any = {
       data_sharing_opt_in: opt_in,
     };
@@ -33,10 +24,41 @@ export async function POST(request: NextRequest) {
       updateData.data_sharing_opted_in_at = new Date().toISOString();
     }
 
+    // First check if profile exists, if not create it
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .single();
+
+    if (!existingProfile) {
+      // Create profile for this user
+      const { error: createError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          ...updateData,
+        });
+
+      if (createError) {
+        console.error('Error creating profile:', createError);
+        return NextResponse.json({ error: 'Failed to create profile' }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        opted_in: opt_in,
+        message: opt_in
+          ? 'Data sharing enabled. You now have 10% off all memberships!'
+          : 'Data sharing disabled. Your discount has been removed.',
+      });
+    }
+
+    // Update existing profile
     const { data, error } = await supabase
-      .from('users')
+      .from('profiles')
       .update(updateData)
-      .eq('id', user.id)
+      .eq('id', userId)
       .select()
       .single();
 

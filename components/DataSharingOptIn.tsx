@@ -21,8 +21,10 @@ export default function DataSharingOptIn({
   useEffect(() => {
     // Fetch current opt-in status
     const fetchOptInStatus = async () => {
+      if (!userId) return;
+
       try {
-        const response = await fetch('/api/user/data-sharing-status');
+        const response = await fetch(`/api/user/data-sharing-status?userId=${userId}`);
         if (response.ok) {
           const data = await response.json();
           setIsOptedIn(data.opted_in);
@@ -33,7 +35,7 @@ export default function DataSharingOptIn({
     };
 
     fetchOptInStatus();
-  }, []);
+  }, [userId]);
 
   const handleToggle = async () => {
     setIsLoading(true);
@@ -41,7 +43,10 @@ export default function DataSharingOptIn({
       const response = await fetch('/api/user/update-data-sharing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ opt_in: !isOptedIn }),
+        body: JSON.stringify({
+          opt_in: !isOptedIn,
+          userId: userId
+        }),
       });
 
       if (response.ok) {
@@ -49,7 +54,8 @@ export default function DataSharingOptIn({
         setIsOptedIn(newStatus);
         onOptInChange?.(newStatus);
       } else {
-        alert('Failed to update data sharing preference');
+        const data = await response.json();
+        alert('Failed to update: ' + (data.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error updating opt-in:', error);

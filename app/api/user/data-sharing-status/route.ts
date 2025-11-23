@@ -8,29 +8,26 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   try {
-    // Get user from session/auth header
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get('userId');
+
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID required' }, { status: 400 });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Get user's opt-in status
+    // Get user's opt-in status from PROFILES table
     const { data: userData, error: userError } = await supabase
-      .from('users')
+      .from('profiles')
       .select('data_sharing_opt_in, data_sharing_opted_in_at')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single();
 
     if (userError) {
-      console.error('Error fetching opt-in status:', userError);
-      return NextResponse.json({ error: 'Failed to fetch status' }, { status: 500 });
+      // Profile doesn't exist yet, return default
+      return NextResponse.json({
+        opted_in: false,
+        opted_in_at: null,
+      });
     }
 
     return NextResponse.json({
