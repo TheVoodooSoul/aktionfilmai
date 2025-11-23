@@ -96,8 +96,8 @@ export default function HomePage() {
         <div className="mb-8 animate-fade-in">
           <img
             src="/logo.png"
-            alt="Aktion Film AI"
-            className="w-64 h-auto mx-auto"
+            alt="AktionFilmAI Logo"
+            className="w-64 md:w-96 lg:w-[500px] h-auto mx-auto"
           />
         </div>
 

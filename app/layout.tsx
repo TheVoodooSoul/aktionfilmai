@@ -24,7 +24,6 @@ export const metadata: Metadata = {
     description: "Create cinematic action sequences with AI. Sketch, generate, and animate your action hero vision.",
     images: ['/logo.png'],
     type: 'website',
-    url: 'https://aktionfilmai.com',
   },
   twitter: {
     card: 'summary_large_image',
