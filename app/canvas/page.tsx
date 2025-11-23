@@ -99,37 +99,49 @@ export default function CanvasPage() {
     }
   };
 
-  // Save output to database if user opted in
-  const saveOutputToDatabase = async (nodeId: string, outputUrl: string, outputType: string) => {
+  // Save output to database if user opted in to data sharing
+  const saveOutputToDatabase = async (nodeId: string, outputUrl: string, outputType: 'image' | 'video') => {
     if (!user) return;
 
     try {
-      // Check if user has opted in
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('training_opt_in')
-        .eq('id', user.id)
-        .single();
-
-      if (!profile?.training_opt_in) return;
-
       const node = canvas.nodes.find(n => n.id === nodeId);
       if (!node) return;
 
-      // Save to generated_outputs table
-      await supabase.from('generated_outputs').insert({
-        user_id: user.id,
-        output_type: outputType,
-        output_url: outputUrl,
-        prompt_data: {
-          prompt: node.prompt,
-          settings: node.settings,
-          type: node.type,
-        },
-        allow_training: true,
+      // Prepare character references if used
+      const characterReferences = node.settings?.characterRefs
+        ? characterRefs
+            .filter(ref => node.settings!.characterRefs!.includes(ref.id))
+            .map(ref => ({
+              id: ref.id,
+              name: ref.name,
+              outfit: ref.outfit,
+            }))
+        : null;
+
+      // Call the training data storage API (checks opt-in status)
+      const response = await fetch('/api/training-data/store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          outputUrl,
+          outputType,
+          nodeType: node.type,
+          prompt: node.prompt || null,
+          settings: node.settings || null,
+          characterRefs: characterReferences,
+          inputImageUrl: node.imageData || null,
+          inputImages: node.coherentImages || null,
+        }),
       });
+
+      const result = await response.json();
+      if (result.success) {
+        console.log('✓ Training data stored:', result.id);
+      }
     } catch (error) {
-      console.error('Error saving output:', error);
+      // Silently fail - don't interrupt user experience
+      console.error('Error saving training data:', error);
     }
   };
 
@@ -454,6 +466,10 @@ export default function CanvasPage() {
         };
         addNode(newNode);
         setCredits(credits - creditCost);
+
+        // Save to training data if user opted in
+        await saveOutputToDatabase(newNode.id, data.output_url, 'video');
+
         alert('✅ Sequence video generated!');
       } else {
         alert('Failed to generate sequence');
@@ -494,11 +510,16 @@ export default function CanvasPage() {
           height: 400,
           prompt: 'Epic Scene (6 images)',
           imageUrl: data.output_url,
+          coherentImages: images, // Store the 6 input images
           settings: {},
         };
         addNode(newNode);
 
         setCredits(credits - 10);
+
+        // Save to training data if user opted in
+        await saveOutputToDatabase(newNode.id, data.output_url, 'image');
+
         alert('✅ Epic scene generated successfully!');
       } else {
         alert('Failed to generate epic scene: ' + (data.error || 'Unknown error'));
