@@ -15,6 +15,23 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Aktion Film AI - Choreograph the Impossible",
   description: "Create cinematic action sequences with AI. Sketch, generate, and animate your action hero vision.",
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
+  },
+  openGraph: {
+    title: "Aktion Film AI - Choreograph the Impossible",
+    description: "Create cinematic action sequences with AI. Sketch, generate, and animate your action hero vision.",
+    images: ['/logo.png'],
+    type: 'website',
+    url: 'https://aktionfilmai.com',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: "Aktion Film AI - Choreograph the Impossible",
+    description: "Create cinematic action sequences with AI. Sketch, generate, and animate your action hero vision.",
+    images: ['/logo.png'],
+  },
 };
 
 export default function RootLayout({

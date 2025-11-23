@@ -94,7 +94,11 @@ export default function HomePage() {
       <div className="relative z-20 min-h-screen flex flex-col items-center justify-center px-4 py-20">
         {/* Logo/Brand */}
         <div className="mb-8 animate-fade-in">
-          <div className="text-red-600 text-6xl mb-4 text-center font-black">AF</div>
+          <img
+            src="/logo.png"
+            alt="Aktion Film AI"
+            className="w-64 h-auto mx-auto"
+          />
         </div>
 
         {/* Main Title */}
