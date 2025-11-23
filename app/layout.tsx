@@ -40,6 +40,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        {/* Termly Consent Management */}
+        <script
+          type="text/javascript"
+          src="https://app.termly.io/embed.min.js"
+          data-auto-block="on"
+          data-website-uuid="73ab4ad9-3d47-4629-879c-1ed934ff097b"
+        ></script>
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

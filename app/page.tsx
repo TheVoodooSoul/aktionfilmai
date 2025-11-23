@@ -34,6 +34,7 @@ export default function HomePage() {
   const [currentFeatureIndex, setCurrentFeatureIndex] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [showThanks, setShowThanks] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
 
   // Rotate features every 4 seconds
   useEffect(() => {
@@ -60,8 +61,8 @@ export default function HomePage() {
       if (response.ok) {
         setMessage('✓ Successfully joined the fight! Check your email.');
         setEmail('');
-        // Show the Gamma presentation modal
-        setShowModal(true);
+        // Show consent preferences first
+        setShowConsent(true);
       } else {
         setMessage(data.error || 'Failed to sign up');
       }
@@ -75,6 +76,12 @@ export default function HomePage() {
   const handleCloseModal = () => {
     setShowModal(false);
     setShowThanks(false);
+    setShowConsent(false);
+  };
+
+  const handleConsentComplete = () => {
+    setShowConsent(false);
+    setShowModal(true);
   };
 
   return (
@@ -256,6 +263,53 @@ export default function HomePage() {
           animation-fill-mode: both;
         }
       `}</style>
+
+      {/* Consent Preferences Modal */}
+      {showConsent && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm">
+          <div className="relative w-full max-w-2xl mx-4">
+            <div className="bg-gradient-to-br from-zinc-900 to-black rounded-xl p-8 border border-zinc-800">
+              <h2 className="text-3xl font-black text-white mb-4">
+                Privacy & Consent Preferences
+              </h2>
+              <p className="text-zinc-300 mb-6">
+                Before we continue, please review and set your privacy preferences.
+              </p>
+
+              {/* Termly Consent Widget */}
+              <div className="bg-black/50 rounded-lg p-6 mb-6 border border-zinc-700">
+                <p className="text-zinc-400 text-sm mb-4">
+                  We use cookies and similar technologies to help personalize content and offer a better experience.
+                  You can manage your preferences below.
+                </p>
+                <div className="flex items-center justify-center">
+                  <a
+                    href="#"
+                    className="termly-display-preferences px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors inline-block"
+                  >
+                    Manage Cookie Preferences
+                  </a>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={handleConsentComplete}
+                  className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors"
+                >
+                  Continue to Presentation
+                </button>
+                <button
+                  onClick={handleCloseModal}
+                  className="px-6 py-3 bg-zinc-700 hover:bg-zinc-600 text-white font-medium rounded-lg transition-colors"
+                >
+                  Skip for Now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Gamma Presentation Modal */}
       {showModal && (
