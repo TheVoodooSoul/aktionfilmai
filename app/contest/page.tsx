@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Trophy, Send, DollarSign, Calendar, Film, ExternalLink } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import Footer from '@/components/Footer';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
@@ -364,6 +365,8 @@ export default function ContestSubmitPage() {
           </Link>
         </div>
       </div>
+
+      <Footer />
     </div>
   );
 }

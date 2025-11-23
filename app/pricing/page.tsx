@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Zap, Crown, Rocket } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
+import Footer from '@/components/Footer';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
@@ -284,6 +285,8 @@ export default function PricingPage() {
           </div>
         </div>
       </div>
+
+      <Footer />
     </div>
   );
 }

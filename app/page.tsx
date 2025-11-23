@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Film, Zap, Users, Trophy, ChevronRight } from 'lucide-react';
+import Footer from '@/components/Footer';
 
 const features = [
   {
@@ -212,11 +213,6 @@ export default function HomePage() {
           ))}
         </div>
 
-        {/* Footer */}
-        <div className="mt-20 text-center text-zinc-600 text-sm">
-          <p>© 2024 Aktion Film AI. All rights reserved.</p>
-          <p className="mt-2">Unleash your inner action hero.</p>
-        </div>
       </div>
 
       {/* Custom Animations */}
@@ -364,6 +360,8 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      <Footer />
     </div>
   );
 }

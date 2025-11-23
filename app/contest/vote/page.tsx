@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Trophy, Heart, ExternalLink, DollarSign, Users, Award, Calendar } from 'lucide-react';
+import Footer from '@/components/Footer';
 
 export default function ContestVotePage() {
   const [user, setUser] = useState<any>(null);
@@ -321,6 +322,8 @@ export default function ContestVotePage() {
           </div>
         )}
       </div>
+
+      <Footer />
     </div>
   );
 }

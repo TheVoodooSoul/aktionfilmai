@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Trophy, DollarSign, Calendar, Film, Target, Zap } from 'lucide-react';
+import Footer from '@/components/Footer';
 
 export default function ContestRulesPage() {
   return (
@@ -209,6 +210,8 @@ export default function ContestRulesPage() {
           </div>
         </div>
       </div>
+
+      <Footer />
     </div>
   );
 }
