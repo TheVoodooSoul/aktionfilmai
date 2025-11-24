@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Film, Zap, Users, Trophy, ChevronRight } from 'lucide-react';
 import Footer from '@/components/Footer';
+import DiscordWidget from '@/components/DiscordWidget';
 
 const features = [
   {
@@ -211,6 +212,11 @@ export default function HomePage() {
               <p className="text-xs text-zinc-500">{feature.description}</p>
             </div>
           ))}
+        </div>
+
+        {/* Discord Widget */}
+        <div className="mt-20 max-w-2xl mx-auto">
+          <DiscordWidget />
         </div>
 
       </div>

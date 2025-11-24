@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Trophy, Heart, ExternalLink, DollarSign, Users, Award, Calendar } from 'lucide-react';
 import Footer from '@/components/Footer';
+import DiscordWidget from '@/components/DiscordWidget';
 
 export default function ContestVotePage() {
   const [user, setUser] = useState<any>(null);
@@ -321,6 +322,11 @@ export default function ContestVotePage() {
             </div>
           </div>
         )}
+
+        {/* Discord Widget */}
+        <div className="mt-12 max-w-2xl mx-auto">
+          <DiscordWidget />
+        </div>
       </div>
 
       <Footer />
