@@ -10,9 +10,34 @@ const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
 
 const pricingTiers = [
   {
+    name: 'Beta Access',
+    monthlyPrice: 20,
+    annualPrice: 20,
+    priceId: {
+      monthly: process.env.NEXT_PUBLIC_STRIPE_PRICE_BETA_MONTHLY || 'price_beta_monthly',
+      annual: process.env.NEXT_PUBLIC_STRIPE_PRICE_BETA_ANNUAL || 'price_beta_annual',
+    },
+    credits: 500,
+    icon: Zap,
+    color: 'from-green-600 to-green-700',
+    badge: 'EARLY ACCESS',
+    features: [
+      '500 credits/month',
+      'Early access to features',
+      'Sketch-to-image generation',
+      'Basic character creation',
+      'Community support',
+      'HD output quality',
+    ],
+  },
+  {
     name: 'Hobbyist',
-    price: '$9',
-    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_HOBBYIST || 'price_hobbyist',
+    monthlyPrice: 10,
+    annualPrice: 9,
+    priceId: {
+      monthly: process.env.NEXT_PUBLIC_STRIPE_PRICE_HOBBYIST_MONTHLY || 'price_hobbyist_monthly',
+      annual: process.env.NEXT_PUBLIC_STRIPE_PRICE_HOBBYIST || 'price_hobbyist',
+    },
     credits: 100,
     icon: Zap,
     color: 'from-blue-600 to-blue-700',
@@ -26,8 +51,12 @@ const pricingTiers = [
   },
   {
     name: 'Indie',
-    price: '$29',
-    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_INDIE || 'price_indie',
+    monthlyPrice: 49.99,
+    annualPrice: 29,
+    priceId: {
+      monthly: process.env.NEXT_PUBLIC_STRIPE_PRICE_INDIE_MONTHLY || 'price_indie_monthly',
+      annual: process.env.NEXT_PUBLIC_STRIPE_PRICE_INDIE || 'price_indie',
+    },
     credits: 500,
     icon: Crown,
     color: 'from-purple-600 to-purple-700',
@@ -43,8 +72,12 @@ const pricingTiers = [
   },
   {
     name: 'Pro',
-    price: '$99',
-    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO || 'price_pro',
+    monthlyPrice: 149.99,
+    annualPrice: 99,
+    priceId: {
+      monthly: process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO_MONTHLY || 'price_pro_monthly',
+      annual: process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO || 'price_pro',
+    },
     credits: 2000,
     icon: Rocket,
     color: 'from-red-600 to-red-700',
@@ -65,6 +98,7 @@ export default function PricingPage() {
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [dataOptIn, setDataOptIn] = useState(false);
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('annual');
 
   useEffect(() => {
     // Get user from localStorage (or your auth system)
@@ -156,6 +190,33 @@ export default function PricingPage() {
             Unleash cinematic action sequences with AI. All tiers include monthly credit refills.
           </p>
 
+          {/* Billing Period Toggle */}
+          <div className="mt-8 inline-flex items-center gap-4 bg-zinc-900/50 border border-zinc-800 rounded-lg p-2">
+            <button
+              onClick={() => setBillingPeriod('monthly')}
+              className={`px-6 py-2 rounded-lg font-bold transition-all ${
+                billingPeriod === 'monthly'
+                  ? 'bg-red-600 text-white'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setBillingPeriod('annual')}
+              className={`px-6 py-2 rounded-lg font-bold transition-all ${
+                billingPeriod === 'annual'
+                  ? 'bg-red-600 text-white'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Annual
+              <span className="ml-2 text-xs bg-green-500 text-black px-2 py-0.5 rounded-full">
+                SAVE 40%
+              </span>
+            </button>
+          </div>
+
           {/* Data Sharing Discount Banner */}
           {dataOptIn && (
             <div className="mt-6 inline-block px-6 py-3 bg-green-900/30 border border-green-600/50 rounded-lg">
@@ -167,12 +228,12 @@ export default function PricingPage() {
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-16">
           {pricingTiers.map((tier) => {
             const Icon = tier.icon;
-            const finalPrice = dataOptIn
-              ? `$${Math.floor(parseInt(tier.price.replace('$', '')) * 0.9)}`
-              : tier.price;
+            const basePrice = billingPeriod === 'monthly' ? tier.monthlyPrice : tier.annualPrice;
+            const finalPrice = dataOptIn ? basePrice * 0.9 : basePrice;
+            const currentPriceId = typeof tier.priceId === 'string' ? tier.priceId : tier.priceId[billingPeriod];
 
             return (
               <div
@@ -180,12 +241,19 @@ export default function PricingPage() {
                 className={`relative bg-zinc-900/50 border-2 rounded-xl p-8 backdrop-blur-sm transition-all hover:scale-105 ${
                   tier.popular
                     ? 'border-red-600 shadow-2xl shadow-red-600/50'
+                    : tier.badge
+                    ? 'border-green-600 shadow-xl shadow-green-600/30'
                     : 'border-zinc-800 hover:border-zinc-700'
                 }`}
               >
                 {tier.popular && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-red-600 rounded-full text-sm font-bold">
                     MOST POPULAR
+                  </div>
+                )}
+                {tier.badge && !tier.popular && (
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-green-600 rounded-full text-sm font-bold">
+                    {tier.badge}
                   </div>
                 )}
 
@@ -202,11 +270,20 @@ export default function PricingPage() {
                 {/* Price */}
                 <div className="mb-6">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-5xl font-black">{finalPrice}</span>
-                    <span className="text-zinc-500">/month</span>
+                    <span className="text-5xl font-black">
+                      ${finalPrice.toFixed(finalPrice % 1 === 0 ? 0 : 2)}
+                    </span>
+                    <span className="text-zinc-500">/mo</span>
                   </div>
-                  {dataOptIn && tier.price !== finalPrice && (
-                    <p className="text-sm text-zinc-500 line-through">{tier.price}/month</p>
+                  {dataOptIn && finalPrice !== basePrice && (
+                    <p className="text-sm text-zinc-500 line-through">
+                      ${basePrice.toFixed(basePrice % 1 === 0 ? 0 : 2)}/mo
+                    </p>
+                  )}
+                  {billingPeriod === 'annual' && tier.monthlyPrice !== tier.annualPrice && (
+                    <p className="text-sm text-green-400 mt-1">
+                      Save ${((tier.monthlyPrice - tier.annualPrice) * 12).toFixed(0)}/year
+                    </p>
                   )}
                   <p className="text-zinc-400 mt-2">{tier.credits} credits/month</p>
                 </div>
@@ -223,15 +300,17 @@ export default function PricingPage() {
 
                 {/* CTA Button */}
                 <button
-                  onClick={() => handleSubscribe(tier.priceId)}
-                  disabled={isLoading === tier.priceId}
+                  onClick={() => handleSubscribe(currentPriceId)}
+                  disabled={isLoading === currentPriceId}
                   className={`w-full py-4 rounded-lg font-black text-lg transition-all transform hover:scale-105 active:scale-95 ${
                     tier.popular
                       ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 shadow-lg shadow-red-600/50'
+                      : tier.badge
+                      ? 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-lg shadow-green-600/50'
                       : 'bg-zinc-800 hover:bg-zinc-700'
-                  } ${isLoading === tier.priceId ? 'opacity-50 cursor-wait' : ''}`}
+                  } ${isLoading === currentPriceId ? 'opacity-50 cursor-wait' : ''}`}
                 >
-                  {isLoading === tier.priceId ? 'LOADING...' : 'SUBSCRIBE NOW'}
+                  {isLoading === currentPriceId ? 'LOADING...' : 'SUBSCRIBE NOW'}
                 </button>
               </div>
             );
@@ -261,7 +340,13 @@ export default function PricingPage() {
             <div>
               <h4 className="font-bold text-white mb-2">💳 Monthly Refills</h4>
               <p className="text-sm text-zinc-400">
-                Your credits reset to the full amount at the start of each billing cycle. Unused credits don't roll over.
+                Your monthly credits reset at the start of each billing cycle. Monthly credits expire if unused.
+              </p>
+            </div>
+            <div>
+              <h4 className="font-bold text-white mb-2">🎫 Credit Top-Ups (Subscribers Only)</h4>
+              <p className="text-sm text-zinc-400">
+                Purchase additional credits starting at $20. Top-up credits never expire and stack with your monthly credits!
               </p>
             </div>
             <div>

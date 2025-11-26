@@ -8,7 +8,7 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const { submissionId, userId, voteType } = await request.json();
+    const { submissionId, userId, voteType, tokenId } = await request.json();
 
     if (!submissionId || !userId || !voteType) {
       return NextResponse.json(
@@ -33,14 +33,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // For community votes with token, validate and consume token vote allowance
+    let token = null;
+    if (voteType === 'community' && tokenId) {
+      // Get token details
+      const { data: tokenData, error: tokenError } = await supabase
+        .from('submission_tokens')
+        .select('*')
+        .eq('id', tokenId)
+        .eq('user_id', userId)
+        .single();
+
+      if (tokenError || !tokenData) {
+        return NextResponse.json(
+          { error: 'Token not found or invalid' },
+          { status: 404 }
+        );
+      }
+
+      token = tokenData;
+
+      // Check if token has votes remaining
+      if (token.votes_remaining < 1) {
+        return NextResponse.json(
+          { error: 'Token has no votes remaining' },
+          { status: 400 }
+        );
+      }
+    }
+
     // Record vote
-    const { error: voteError } = await supabase
+    const { data: voteData, error: voteError } = await supabase
       .from('contest_votes')
       .insert({
         submission_id: submissionId,
         user_id: userId,
         vote_type: voteType,
-      });
+      })
+      .select()
+      .single();
 
     if (voteError) {
       console.error('Error recording vote:', voteError);
@@ -48,6 +79,37 @@ export async function POST(request: NextRequest) {
         { error: 'Failed to record vote' },
         { status: 500 }
       );
+    }
+
+    // If using token, consume vote and track usage
+    if (token && voteData) {
+      // Decrement token votes_remaining
+      const newVotesRemaining = token.votes_remaining - 1;
+      const newStatus = token.submission_allowance === 0 && newVotesRemaining === 0 ? 'used' : 'active';
+
+      const { error: updateTokenError } = await supabase
+        .from('submission_tokens')
+        .update({
+          votes_remaining: newVotesRemaining,
+          status: newStatus,
+        })
+        .eq('id', tokenId);
+
+      if (updateTokenError) {
+        console.error('Error updating token:', updateTokenError);
+      }
+
+      // Track token vote usage
+      const { error: usageError } = await supabase
+        .from('token_vote_usage')
+        .insert({
+          token_id: tokenId,
+          vote_id: voteData.id,
+        });
+
+      if (usageError) {
+        console.error('Error tracking token vote usage:', usageError);
+      }
     }
 
     // Update vote count on submission
@@ -67,7 +129,10 @@ export async function POST(request: NextRequest) {
         .eq('id', submissionId);
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      votesRemaining: token ? token.votes_remaining - 1 : null,
+    });
   } catch (error: any) {
     console.error('Vote error:', error);
     return NextResponse.json(

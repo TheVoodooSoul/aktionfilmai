@@ -94,3 +94,36 @@ INSERT INTO contests (
 -- Add contest-related columns to profiles if they don't exist
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS contest_submissions_count INTEGER DEFAULT 0;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS contest_wins INTEGER DEFAULT 0;
+
+-- Submission tokens (1 token = 1 submission + 3 votes)
+CREATE TABLE IF NOT EXISTS submission_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  contest_id UUID REFERENCES contests(id) ON DELETE CASCADE,
+  token_code TEXT UNIQUE NOT NULL, -- unique token code
+  payment_intent_id TEXT, -- Stripe payment intent ID
+  amount_paid INTEGER NOT NULL, -- in cents ($10 or $5)
+  submission_allowance INTEGER DEFAULT 1, -- can submit once
+  votes_remaining INTEGER DEFAULT 3, -- can vote 3 times
+  is_first_purchase BOOLEAN DEFAULT false,
+  status TEXT DEFAULT 'active', -- active, used, expired
+  created_at TIMESTAMP DEFAULT NOW(),
+  used_for_submission_at TIMESTAMP,
+  expires_at TIMESTAMP
+);
+
+-- Track which votes were made with which token
+CREATE TABLE IF NOT EXISTS token_vote_usage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_id UUID REFERENCES submission_tokens(id) ON DELETE CASCADE,
+  vote_id UUID REFERENCES contest_votes(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(token_id, vote_id)
+);
+
+-- Indexes for token queries
+CREATE INDEX IF NOT EXISTS idx_tokens_user ON submission_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_tokens_contest ON submission_tokens(contest_id);
+CREATE INDEX IF NOT EXISTS idx_tokens_status ON submission_tokens(status);
+CREATE INDEX IF NOT EXISTS idx_token_votes_token ON token_vote_usage(token_id);
+CREATE INDEX IF NOT EXISTS idx_token_votes_vote ON token_vote_usage(vote_id);

@@ -35,6 +35,12 @@ export async function POST(request: NextRequest) {
         break;
       }
 
+      case 'payment_intent.succeeded': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        await handlePaymentIntentSucceeded(paymentIntent);
+        break;
+      }
+
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription;
         await handleSubscriptionUpdated(subscription);
@@ -241,4 +247,84 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
   }
 
   console.log(`⚠️ Payment failed for user ${userId}`);
+}
+
+async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+  const { contestId, userId, type, isFirstPurchase } = paymentIntent.metadata;
+
+  // Only handle token purchases
+  if (type !== 'submission_token') {
+    console.log(`Skipping payment intent ${paymentIntent.id} - not a token purchase`);
+    return;
+  }
+
+  if (!contestId || !userId) {
+    console.error('Missing contestId or userId in payment intent metadata');
+    return;
+  }
+
+  // Check if token already exists for this payment
+  const { data: existingToken } = await supabase
+    .from('submission_tokens')
+    .select('id')
+    .eq('payment_intent_id', paymentIntent.id)
+    .single();
+
+  if (existingToken) {
+    console.log(`Token already exists for payment intent ${paymentIntent.id}`);
+    return;
+  }
+
+  // Generate unique token code
+  const { randomBytes } = await import('crypto');
+  const generateTokenCode = () => `AKT-${randomBytes(8).toString('hex').toUpperCase()}`;
+
+  let tokenCode = generateTokenCode();
+  let attempts = 0;
+  let isUnique = false;
+
+  // Ensure token code is unique
+  while (!isUnique && attempts < 5) {
+    const { data: existing } = await supabase
+      .from('submission_tokens')
+      .select('id')
+      .eq('token_code', tokenCode)
+      .single();
+
+    if (!existing) {
+      isUnique = true;
+    } else {
+      tokenCode = generateTokenCode();
+      attempts++;
+    }
+  }
+
+  if (!isUnique) {
+    console.error('Failed to generate unique token code');
+    return;
+  }
+
+  // Create the token
+  const { data: token, error: tokenError } = await supabase
+    .from('submission_tokens')
+    .insert({
+      user_id: userId,
+      contest_id: contestId,
+      token_code: tokenCode,
+      payment_intent_id: paymentIntent.id,
+      amount_paid: paymentIntent.amount,
+      submission_allowance: 1,
+      votes_remaining: 3,
+      is_first_purchase: isFirstPurchase === 'true',
+      status: 'active',
+    })
+    .select()
+    .single();
+
+  if (tokenError) {
+    console.error('Error creating token:', tokenError);
+    return;
+  }
+
+  console.log(`✅ Token created for user ${userId}: ${tokenCode} (Payment: ${paymentIntent.id})`);
 }
