@@ -91,6 +91,17 @@ export default function HomePage() {
 
   return (
     <div className="relative min-h-screen bg-black text-white overflow-hidden">
+      {/* Login Button - Fixed Top Right */}
+      <div className="fixed top-6 right-6 z-50">
+        <Link
+          href="/login"
+          className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 rounded-lg font-black text-sm tracking-wider transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-red-600/50 flex items-center gap-2"
+        >
+          ENTER
+          <ChevronRight size={16} />
+        </Link>
+      </div>
+
       {/* YouTube Background Video */}
       <div className="absolute inset-0 z-0">
         <iframe
