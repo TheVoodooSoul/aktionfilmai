@@ -99,6 +99,7 @@ export default function PricingPage() {
   const [user, setUser] = useState<any>(null);
   const [dataOptIn, setDataOptIn] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('annual');
+  const [betaDiscount] = useState(0.10); // 10% beta launch discount
 
   useEffect(() => {
     // Get user from localStorage (or your auth system)
@@ -186,9 +187,14 @@ export default function PricingPage() {
           >
             CHOOSE YOUR TIER
           </h1>
-          <p className="text-xl text-zinc-400 max-w-2xl mx-auto">
+          <p className="text-xl text-zinc-400 max-w-2xl mx-auto mb-4">
             Unleash cinematic action sequences with AI. All tiers include monthly credit refills.
           </p>
+          <div className="inline-block px-6 py-3 bg-green-600/20 border border-green-600/50 rounded-lg">
+            <p className="text-green-400 font-bold text-lg">
+              🎉 BETA LAUNCH SPECIAL: 10% OFF ALL ANNUAL PLANS
+            </p>
+          </div>
 
           {/* Billing Period Toggle */}
           <div className="mt-8 inline-flex items-center gap-4 bg-zinc-900/50 border border-zinc-800 rounded-lg p-2">
@@ -231,8 +237,16 @@ export default function PricingPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-16">
           {pricingTiers.map((tier) => {
             const Icon = tier.icon;
+
+            // Only show Beta on monthly, hide other monthly plans
+            if (billingPeriod === 'monthly' && tier.name !== 'Beta Access') {
+              return null;
+            }
+
             const basePrice = billingPeriod === 'monthly' ? tier.monthlyPrice : tier.annualPrice;
-            const finalPrice = dataOptIn ? basePrice * 0.9 : basePrice;
+            // Apply beta discount to annual plans, data opt-in discount stacks
+            const priceWithBetaDiscount = billingPeriod === 'annual' ? basePrice * (1 - betaDiscount) : basePrice;
+            const finalPrice = dataOptIn ? priceWithBetaDiscount * 0.9 : priceWithBetaDiscount;
             const currentPriceId = typeof tier.priceId === 'string' ? tier.priceId : tier.priceId[billingPeriod];
 
             return (
@@ -275,14 +289,19 @@ export default function PricingPage() {
                     </span>
                     <span className="text-zinc-500">/mo</span>
                   </div>
-                  {dataOptIn && finalPrice !== basePrice && (
+                  {(dataOptIn || billingPeriod === 'annual') && finalPrice !== basePrice && (
                     <p className="text-sm text-zinc-500 line-through">
                       ${basePrice.toFixed(basePrice % 1 === 0 ? 0 : 2)}/mo
                     </p>
                   )}
+                  {billingPeriod === 'annual' && (
+                    <p className="text-sm text-green-400 mt-1 font-bold">
+                      10% Beta Launch Discount Applied!
+                    </p>
+                  )}
                   {billingPeriod === 'annual' && tier.monthlyPrice !== tier.annualPrice && (
-                    <p className="text-sm text-green-400 mt-1">
-                      Save ${((tier.monthlyPrice - tier.annualPrice) * 12).toFixed(0)}/year
+                    <p className="text-sm text-zinc-400 mt-1">
+                      + Save ${((tier.monthlyPrice - tier.annualPrice) * 12).toFixed(0)}/year vs monthly
                     </p>
                   )}
                   <p className="text-zinc-400 mt-2">{tier.credits} credits/month</p>
