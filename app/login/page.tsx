@@ -1,17 +1,27 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClientComponentClient();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Get redirect parameter from URL
+    const redirect = searchParams.get('redirect');
+    if (redirect) {
+      setRedirectUrl(redirect);
+    }
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,7 +47,10 @@ export default function LoginPage() {
         });
 
         if (error) throw error;
-        router.push('/characters');
+
+        // Redirect to specified URL or default to /characters
+        const destination = redirectUrl || '/characters';
+        router.push(destination);
         router.refresh();
       }
     } catch (error: any) {
@@ -56,6 +69,16 @@ export default function LoginPage() {
         <p className="text-zinc-400 text-center mb-8">
           {mode === 'login' ? 'Sign in to your account' : 'Create your account'}
         </p>
+
+        {redirectUrl && (
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
+            <p className="text-sm text-blue-400">
+              {redirectUrl === '/pricing' && '🎟️ Continue to subscription checkout'}
+              {redirectUrl === '/contest/buy-token' && '🎫 Continue to contest token purchase'}
+              {!redirectUrl.includes('pricing') && !redirectUrl.includes('contest') && `Continue to ${redirectUrl}`}
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
