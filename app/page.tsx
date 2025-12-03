@@ -29,8 +29,9 @@ const features = [
   {
     icon: Users,
     title: 'Writers Room AI',
-    description: 'Script writing assistant that learns and improves with your style',
-    ready: false,
+    description: 'Script writing assistant with AI improv and character dialogue',
+    ready: true,
+    link: '/writers-room',
   },
   {
     icon: Trophy,

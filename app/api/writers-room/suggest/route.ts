@@ -1,26 +1,6 @@
-import { streamText } from 'ai';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-// Configure the AI provider with your API key
-// You can use different providers: openai, anthropic, etc.
-const createAIProvider = () => {
-  // If you have an AI Gateway API key, you can use it here
-  // Otherwise, fall back to OpenAI directly
-  if (process.env.AI_GATEWAY_API_KEY) {
-    // Using AI Gateway (supports multiple providers)
-    return {
-      apiKey: process.env.AI_GATEWAY_API_KEY,
-      model: 'openai/gpt-4-turbo-preview'
-    };
-  } else if (process.env.OPENAI_API_KEY) {
-    // Direct OpenAI integration
-    return {
-      apiKey: process.env.OPENAI_API_KEY,
-      model: 'gpt-4-turbo-preview'
-    };
-  }
-  throw new Error('No AI provider configured');
-};
+// Simple OpenAI streaming implementation
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,20 +62,46 @@ ${script}
 Provide suggestions to make it more cinematic and exciting:`;
     }
 
-    // Stream the AI response
-    const result = await streamText({
-      model: createAIProvider().model,
-      prompt,
-      temperature: 0.7,
-      maxTokens: 1000,
+    const openaiKey = process.env.OPENAI_API_KEY;
+
+    if (!openaiKey) {
+      return NextResponse.json(
+        { error: 'OpenAI API key not configured' },
+        { status: 500 }
+      );
+    }
+
+    // Use OpenAI streaming API directly
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You are an expert action screenplay writer specializing in cinematic action sequences, fight choreography, and tension-filled dialogue.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+        stream: true,
+      }),
     });
 
-    // Return the stream for real-time updates
-    return result.toTextStreamResponse();
+    // Return the stream directly
+    return new Response(response.body, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
 
   } catch (error) {
     console.error('AI suggestion error:', error);
-    return Response.json(
+    return NextResponse.json(
       { error: 'Failed to generate AI suggestion' },
       { status: 500 }
     );
