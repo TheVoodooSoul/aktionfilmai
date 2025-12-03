@@ -75,6 +75,14 @@ export default function CharactersPage() {
   const [uploadingFace, setUploadingFace] = useState(false);
   const [deletingFace, setDeletingFace] = useState<string | null>(null);
 
+  // Voice clone state
+  const [voiceFile, setVoiceFile] = useState<File | null>(null);
+  const [voiceName, setVoiceName] = useState('');
+  const [voiceDescription, setVoiceDescription] = useState('');
+  const [voiceModel, setVoiceModel] = useState<'a2e' | 'cartesia' | 'minimax' | 'elevenlabs'>('a2e');
+  const [cloningVoice, setCloningVoice] = useState(false);
+  const [showVoiceCloner, setShowVoiceCloner] = useState(false);
+
   useEffect(() => {
     async function getUser() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -138,8 +146,8 @@ export default function CharactersPage() {
     setLoadingVoices(true);
     try {
       const [publicResponse, clonesResponse] = await Promise.all([
-        fetch('/api/a2e/voices/list-public'),
-        fetch('/api/a2e/voices/list-clones'),
+        fetch('/api/a2e/voices/list?country=en&region=US'),
+        fetch('/api/a2e/voices/clones'),
       ]);
 
       if (publicResponse.ok) {
@@ -423,6 +431,61 @@ export default function CharactersPage() {
     }
   }
 
+  async function handleVoiceClone() {
+    if (!voiceFile || !voiceName.trim()) {
+      alert('Please provide both audio file and voice name');
+      return;
+    }
+
+    setCloningVoice(true);
+    try {
+      // Upload audio file
+      const fileName = `${user?.id}/voices/${Date.now()}-${voiceFile.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from('character-uploads')
+        .upload(fileName, voiceFile);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl: audioUrl } } = supabase.storage
+        .from('character-uploads')
+        .getPublicUrl(fileName);
+
+      // Start voice cloning
+      const response = await fetch('/api/a2e/voices/clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioUrl: audioUrl,
+          name: voiceName,
+          description: voiceDescription,
+          model: voiceModel,
+          userId: user?.id,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to clone voice');
+      }
+
+      alert(`✅ Voice clone "${voiceName}" training started! Check back in ~1 minute.`);
+      setVoiceFile(null);
+      setVoiceName('');
+      setVoiceDescription('');
+      setShowVoiceCloner(false);
+      
+      // Reload voices after a delay
+      setTimeout(() => loadVoices(), 60000); // Reload after 1 minute
+      
+    } catch (error: any) {
+      console.error('Voice clone error:', error);
+      alert('Failed to clone voice: ' + error.message);
+    } finally {
+      setCloningVoice(false);
+    }
+  }
+
   async function handleUploadBackground() {
     if (!backgroundFile) {
       alert('Please select a background image');
@@ -611,123 +674,232 @@ export default function CharactersPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* Creation Section */}
+        {/* Main Creation Section */}
         <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-6 mb-8">
-          <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-            <Sparkles size={20} className="text-red-500" />
-            Create Avatar (Following A2E Best Practices)
-          </h2>
-
-          {/* Tabs */}
-          <div className="flex gap-2 mb-6 border-b border-zinc-800">
-            <button
-              onClick={() => setActiveTab('video')}
-              className={`px-4 py-2 font-semibold transition-colors border-b-2 ${
-                activeTab === 'video'
-                  ? 'text-green-500 border-green-500'
-                  : 'text-zinc-500 border-transparent hover:text-zinc-300'
-              }`}
-            >
-              <Video size={16} className="inline mr-2" />
-              Upload Video (10 credits) - Recommended!
-            </button>
-            <button
-              onClick={() => setActiveTab('image')}
-              className={`px-4 py-2 font-semibold transition-colors border-b-2 ${
-                activeTab === 'image'
-                  ? 'text-orange-500 border-orange-500'
-                  : 'text-zinc-500 border-transparent hover:text-zinc-300'
-              }`}
-            >
-              <ImageIcon size={16} className="inline mr-2" />
-              Upload Image (30 credits)
-            </button>
-            <button
-              onClick={() => setActiveTab('t2i')}
-              className={`px-4 py-2 font-semibold transition-colors border-b-2 ${
-                activeTab === 't2i'
-                  ? 'text-red-500 border-red-500'
-                  : 'text-zinc-500 border-transparent hover:text-zinc-300'
-              }`}
-            >
-              <User size={16} className="inline mr-2" />
-              Text-to-Image (10 credits)
-            </button>
+          <div className="text-center mb-6">
+            <h2 className="text-2xl font-bold mb-2 text-white">
+              🎬 Create Your A2E Avatar
+            </h2>
+            <p className="text-zinc-400">
+              Choose your creation method - Both image and video work with all A2E features!
+            </p>
           </div>
+
+          {/* Two Main Options */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* VIDEO UPLOAD - LEFT/TOP */}
+            <div className={`border-2 rounded-xl p-6 transition-all ${
+              activeTab === 'video' 
+                ? 'border-green-500 bg-green-950/20' 
+                : 'border-zinc-700 hover:border-zinc-600'
+            }`}>
+              <button
+                onClick={() => setActiveTab('video')}
+                className="w-full text-left"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-green-600 rounded-lg flex items-center justify-center">
+                      <Video size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Video Upload</h3>
+                      <p className="text-sm text-green-400">⭐ RECOMMENDED - Best quality</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-green-400">10</div>
+                    <div className="text-xs text-zinc-500">credits</div>
+                  </div>
+                </div>
+              </button>
+              
+              <div className="space-y-2 text-sm text-zinc-400 mb-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span>5-30 seconds front-facing video</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span>Best lip-sync quality</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span>Speak normally as your character</span>
+                </div>
+              </div>
+
+              {activeTab !== 'video' && (
+                <button
+                  onClick={() => setActiveTab('video')}
+                  className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg font-semibold transition-colors"
+                >
+                  Select Video Upload
+                </button>
+              )}
+            </div>
+
+            {/* IMAGE UPLOAD - RIGHT/BOTTOM */}
+            <div className={`border-2 rounded-xl p-6 transition-all ${
+              activeTab === 'image' 
+                ? 'border-orange-500 bg-orange-950/20' 
+                : 'border-zinc-700 hover:border-zinc-600'
+            }`}>
+              <button
+                onClick={() => setActiveTab('image')}
+                className="w-full text-left"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-orange-600 rounded-lg flex items-center justify-center">
+                      <ImageIcon size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Image Upload</h3>
+                      <p className="text-sm text-orange-400">Quick avatar from photo</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-orange-400">30</div>
+                    <div className="text-xs text-zinc-500">credits</div>
+                  </div>
+                </div>
+              </button>
+              
+              <div className="space-y-2 text-sm text-zinc-400 mb-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-orange-400">✓</span>
+                  <span>Single front-facing photo</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-orange-400">✓</span>
+                  <span>Add prompts for animation style</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-orange-400">✓</span>
+                  <span>Works with all A2E features</span>
+                </div>
+              </div>
+
+              {activeTab !== 'image' && (
+                <button
+                  onClick={() => setActiveTab('image')}
+                  className="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold transition-colors"
+                >
+                  Select Image Upload
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-zinc-800 pt-6">
 
           {/* Video Upload Form */}
           {activeTab === 'video' && (
             <div className="space-y-4">
-              <div className="bg-blue-950/30 border border-blue-800 rounded-lg p-4 mb-4">
-                <h3 className="text-sm font-bold text-blue-400 mb-2 flex items-center gap-2">
-                  <Info size={16} />
-                  A2E Video Requirements (5-30 seconds recommended)
-                </h3>
-                <ul className="text-xs text-blue-300 space-y-1 list-disc list-inside">
-                  <li>Single face only, facing forward</li>
-                  <li>Face width = 1/10 to 1/3 of frame width</li>
-                  <li>720P-1080P resolution (max 4K)</li>
-                  <li>5 seconds - 5 minutes duration</li>
-                  <li>**Speak normally as your character** - audio + lip sync important!</li>
-                  <li>No background noise, moderate speaking speed</li>
-                </ul>
+              <h3 className="text-lg font-bold text-green-400 mb-4">Video Avatar Setup</h3>
+
+              {/* Step 1: Basic Info */}
+              <div className="bg-zinc-900 rounded-lg p-4 space-y-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-sm font-bold">1</div>
+                  <h4 className="font-semibold">Basic Info</h4>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2 text-zinc-400">Avatar Name *</label>
+                    <input
+                      type="text"
+                      value={videoName}
+                      onChange={(e) => setVideoName(e.target.value)}
+                      placeholder="e.g. Thunder Jackson"
+                      className="w-full px-4 py-2 bg-black border border-zinc-700 rounded-lg focus:outline-none focus:border-green-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2 text-zinc-400">Gender *</label>
+                    <select
+                      value={videoGender}
+                      onChange={(e) => setVideoGender(e.target.value as 'male' | 'female')}
+                      className="w-full px-4 py-2 bg-black border border-zinc-700 rounded-lg focus:outline-none focus:border-green-500"
+                    >
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Avatar Name</label>
+              {/* Step 2: Upload Video */}
+              <div className="bg-zinc-900 rounded-lg p-4 space-y-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-sm font-bold">2</div>
+                  <h4 className="font-semibold">Upload Front-Facing Video</h4>
+                </div>
+                <div className="border-2 border-dashed border-zinc-700 rounded-lg p-6 text-center hover:border-green-600 transition-colors">
+                  <Video size={48} className="mx-auto mb-3 text-zinc-600" />
                   <input
-                    type="text"
-                    value={videoName}
-                    onChange={(e) => setVideoName(e.target.value)}
-                    placeholder="e.g. Thunder Jackson"
-                    className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
+                    id="video-upload"
+                    className="hidden"
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Gender</label>
-                  <select
-                    value={videoGender}
-                    onChange={(e) => setVideoGender(e.target.value as 'male' | 'female')}
-                    className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
+                  <label htmlFor="video-upload" className="cursor-pointer">
+                    {videoFile ? (
+                      <div>
+                        <p className="text-green-400 font-semibold">✓ {videoFile.name}</p>
+                        <p className="text-xs text-zinc-500 mt-1">Click to change</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-white font-semibold mb-1">Click to upload video</p>
+                        <p className="text-xs text-zinc-500">5-30 seconds, front facing, speaking</p>
+                      </div>
+                    )}
+                  </label>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold mb-2">Video File (5s-5min, speaking recommended)</label>
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
-                  className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-green-600 file:text-white file:font-semibold hover:file:bg-green-700"
-                />
-              </div>
-
-              {/* Background Options */}
-              <div>
-                <label className="block text-sm font-semibold mb-2">Original Background (Optional)</label>
-                <div className="flex gap-2 mb-2">
+              {/* Step 3: Background (Optional) */}
+              <div className="bg-zinc-900 rounded-lg p-4 space-y-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 bg-zinc-700 rounded-full flex items-center justify-center text-sm font-bold">3</div>
+                  <h4 className="font-semibold">Background (Optional)</h4>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     onClick={() => setVideoBgType('none')}
-                    className={`px-3 py-1 rounded ${videoBgType === 'none' ? 'bg-green-600' : 'bg-zinc-800'}`}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      videoBgType === 'none' 
+                        ? 'border-green-500 bg-green-950/50' 
+                        : 'border-zinc-700 hover:border-zinc-600'
+                    }`}
                   >
-                    None
+                    <div className="text-sm font-medium">No Background</div>
+                    <div className="text-xs text-zinc-500 mt-1">Keep original</div>
                   </button>
                   <button
                     onClick={() => setVideoBgType('color')}
-                    className={`px-3 py-1 rounded ${videoBgType === 'color' ? 'bg-green-600' : 'bg-zinc-800'}`}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      videoBgType === 'color' 
+                        ? 'border-green-500 bg-green-950/50' 
+                        : 'border-zinc-700 hover:border-zinc-600'
+                    }`}
                   >
-                    Color (Green Screen)
+                    <div className="text-sm font-medium">Green Screen</div>
+                    <div className="text-xs text-zinc-500 mt-1">Chroma key</div>
                   </button>
                   <button
                     onClick={() => setVideoBgType('image')}
-                    className={`px-3 py-1 rounded ${videoBgType === 'image' ? 'bg-green-600' : 'bg-zinc-800'}`}
+                    className={`p-3 rounded-lg border-2 transition-all ${
+                      videoBgType === 'image' 
+                        ? 'border-green-500 bg-green-950/50' 
+                        : 'border-zinc-700 hover:border-zinc-600'
+                    }`}
                   >
-                    Upload Image
+                    <div className="text-sm font-medium">Custom BG</div>
+                    <div className="text-xs text-zinc-500 mt-1">Upload image</div>
                   </button>
                 </div>
 
@@ -737,17 +909,36 @@ export default function CharactersPage() {
                     value={videoBgColor}
                     onChange={(e) => setVideoBgColor(e.target.value)}
                     placeholder="rgb(0,255,0)"
-                    className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg"
+                    className="w-full px-4 py-2 bg-black border border-zinc-700 rounded-lg"
                   />
                 )}
 
                 {videoBgType === 'image' && (
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setVideoBgImage(e.target.files?.[0] || null)}
-                    className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-green-600 file:text-white"
-                  />
+                  <div className="space-y-2">
+                    <p className="text-xs text-zinc-500">Choose from library or upload new:</p>
+                    {backgrounds.length > 0 && (
+                      <div className="grid grid-cols-4 gap-2 mb-3">
+                        {backgrounds.slice(0, 4).map((bg) => (
+                          <button
+                            key={bg._id}
+                            onClick={() => {
+                              // Set the background image URL
+                              setVideoBgImage(bg.url);
+                            }}
+                            className="relative aspect-video bg-zinc-800 rounded overflow-hidden hover:ring-2 hover:ring-green-500"
+                          >
+                            <img src={bg.url} alt="Background" className="w-full h-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setVideoBgImage(e.target.files?.[0] || null)}
+                      className="w-full px-4 py-2 bg-black border border-zinc-700 rounded-lg file:mr-4 file:py-1 file:px-2 file:rounded file:border-0 file:bg-green-600 file:text-white file:text-xs"
+                    />
+                  </div>
                 )}
               </div>
 
@@ -933,6 +1124,7 @@ export default function CharactersPage() {
               </button>
             </div>
           )}
+          </div>
         </div>
 
         {/* Avatar Gallery */}
@@ -1039,6 +1231,88 @@ export default function CharactersPage() {
             <Mic size={20} className="text-blue-500" />
             Voice Library (TTS Options)
           </h2>
+
+          {/* Voice Clone Training Section */}
+          <div className="bg-zinc-950 border border-blue-800 rounded-xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-blue-400">Clone Your Voice (10 credits)</h3>
+              <button
+                onClick={() => setShowVoiceCloner(!showVoiceCloner)}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-semibold transition-colors"
+              >
+                {showVoiceCloner ? 'Cancel' : '+ Clone Voice'}
+              </button>
+            </div>
+            
+            {showVoiceCloner && (
+              <div className="space-y-4">
+                <div className="bg-blue-950/30 border border-blue-800 rounded-lg p-4">
+                  <h4 className="text-xs font-bold text-blue-300 mb-2">Requirements:</h4>
+                  <ul className="text-xs text-blue-200 space-y-1 list-disc list-inside">
+                    <li>10-60 seconds of clear audio (mp3/wav/m4a)</li>
+                    <li>Single speaker, no background noise</li>
+                    <li>Consistent volume, avoid silence</li>
+                    <li>Training completes in ~1 minute</li>
+                  </ul>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Voice Name</label>
+                    <input
+                      type="text"
+                      value={voiceName}
+                      onChange={(e) => setVoiceName(e.target.value)}
+                      placeholder="e.g. My Action Voice"
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Model</label>
+                    <select
+                      value={voiceModel}
+                      onChange={(e) => setVoiceModel(e.target.value as any)}
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm"
+                    >
+                      <option value="a2e">A2E (13 languages)</option>
+                      <option value="cartesia">Cartesia (15 languages)</option>
+                      <option value="minimax">Minimax (24 languages)</option>
+                      <option value="elevenlabs">ElevenLabs (35 languages)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Description (optional)</label>
+                  <input
+                    type="text"
+                    value={voiceDescription}
+                    onChange={(e) => setVoiceDescription(e.target.value)}
+                    placeholder="Deep, commanding action hero voice"
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Audio File (10-60 seconds)</label>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => setVoiceFile(e.target.files?.[0] || null)}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm file:mr-3 file:py-1 file:px-2 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-xs"
+                  />
+                </div>
+
+                <button
+                  onClick={handleVoiceClone}
+                  disabled={cloningVoice || !voiceFile || !voiceName}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors text-sm"
+                >
+                  {cloningVoice ? 'Training Voice Clone...' : 'Start Voice Cloning (10 credits)'}
+                </button>
+              </div>
+            )}
+          </div>
 
           {loadingVoices ? (
             <div className="text-center py-12 text-zinc-500">Loading voices...</div>

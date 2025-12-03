@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Film, Zap, Users, Trophy, ChevronRight } from 'lucide-react';
+import { Film, Zap, Users, Trophy, ChevronRight, Clapperboard } from 'lucide-react';
 import Footer from '@/components/Footer';
 
 const features = [
@@ -11,6 +11,14 @@ const features = [
     title: 'Infinite Canvas Storyboarding',
     description: 'Sketch action sequences with our revolutionary node-based canvas system',
     ready: true,
+  },
+  {
+    icon: Clapperboard,
+    title: 'Fight Presets',
+    description: 'Cinematic fight move templates - pick a preset, load your character, generate',
+    ready: false,
+    comingSoon: true,
+    link: '/presets',
   },
   {
     icon: Zap,
@@ -220,22 +228,54 @@ export default function HomePage() {
         </div>
 
         {/* Feature Grid (Bottom) */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-20 max-w-6xl">
-          {features.map((feature, index) => (
-            <div
-              key={index}
-              className="relative p-6 bg-black/30 border border-zinc-800 rounded-lg backdrop-blur-sm hover:border-red-600 transition-all group"
-            >
-              {!feature.ready && (
-                <div className="absolute top-2 right-2 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500 rounded text-[10px] font-bold text-yellow-500">
-                  UNDER CONSTRUCTION
-                </div>
-              )}
-              <feature.icon className="text-red-500 mb-3 group-hover:scale-110 transition-transform" size={28} />
-              <h4 className="font-bold mb-2 text-sm">{feature.title}</h4>
-              <p className="text-xs text-zinc-500">{feature.description}</p>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-20 max-w-7xl">
+          {features.map((feature, index) => {
+            const CardWrapper = (feature as any).link ? Link : 'div';
+            const cardProps = (feature as any).link ? { href: (feature as any).link } : {};
+
+            return (
+              <CardWrapper
+                key={index}
+                {...cardProps}
+                className={`relative p-6 bg-black/30 border rounded-lg backdrop-blur-sm transition-all group ${
+                  (feature as any).comingSoon
+                    ? 'border-red-600/50 hover:border-red-500 bg-gradient-to-br from-red-950/30 to-black/50'
+                    : 'border-zinc-800 hover:border-red-600'
+                }`}
+              >
+                {/* Coming Soon Banner - Red diagonal */}
+                {(feature as any).comingSoon && (
+                  <div className="absolute -top-1 -right-1 overflow-hidden w-24 h-24 pointer-events-none">
+                    <div className="absolute top-4 -right-8 w-32 bg-red-600 text-white text-[10px] font-black py-1 text-center transform rotate-45 shadow-lg">
+                      COMING SOON
+                    </div>
+                  </div>
+                )}
+
+                {/* Under Construction Badge */}
+                {!feature.ready && !(feature as any).comingSoon && (
+                  <div className="absolute top-2 right-2 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500 rounded text-[10px] font-bold text-yellow-500">
+                    UNDER CONSTRUCTION
+                  </div>
+                )}
+
+                <feature.icon className={`mb-3 group-hover:scale-110 transition-transform ${
+                  (feature as any).comingSoon ? 'text-red-400' : 'text-red-500'
+                }`} size={28} />
+                <h4 className="font-bold mb-2 text-sm">{feature.title}</h4>
+                <p className="text-xs text-zinc-500">{feature.description}</p>
+
+                {/* Movie poster style tagline for presets */}
+                {(feature as any).comingSoon && (
+                  <div className="mt-3 pt-3 border-t border-red-900/50">
+                    <p className="text-[10px] text-red-400 font-medium tracking-wide">
+                      PUNCHES • KICKS • TAKEDOWNS • COMBOS
+                    </p>
+                  </div>
+                )}
+              </CardWrapper>
+            );
+          })}
         </div>
 
         {/* Discord Link */}

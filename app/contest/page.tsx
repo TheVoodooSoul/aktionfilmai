@@ -272,9 +272,9 @@ export default function ContestSubmitPage() {
                 <textarea
                   value={submissionData.description}
                   onChange={(e) => setSubmissionData({ ...submissionData, description: e.target.value })}
-                  placeholder="Tell us about your action sequence..."
-                  rows={4}
-                  className="w-full px-4 py-3 bg-black border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-red-600 resize-none"
+                  placeholder="Tell us about your action sequence - describe the story, characters, choreography, special effects used, and what makes it unique..."
+                  rows={8}
+                  className="w-full px-6 py-4 bg-black border border-zinc-700 rounded-lg text-white text-base leading-relaxed focus:outline-none focus:border-red-600 resize-vertical min-h-[200px]"
                 />
               </div>
 

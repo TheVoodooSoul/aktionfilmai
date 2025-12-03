@@ -66,7 +66,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Call A2E Continue Training API
+    // Call A2E Continue Training API (Studio Avatar)
+    // Note: A2E has a typo in their endpoint - 'Tranining' instead of 'Training'
     const response = await fetch('https://video.a2e.ai/api/v1/userVideoTwin/continueTranining', {
       method: 'POST',
       headers: {

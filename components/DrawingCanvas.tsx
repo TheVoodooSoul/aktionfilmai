@@ -8,7 +8,7 @@ import { Paintbrush, Eraser, Square, CircleIcon, Upload, Sliders, Sparkles } fro
 interface DrawingCanvasProps {
   width: number;
   height: number;
-  onSave?: (imageData: string, prompt?: string) => void;
+  onSave?: (imageData: string, prompt?: string, autoGenerate?: boolean) => void;
   nodeId?: string;
 }
 
@@ -31,9 +31,6 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentShape, setCurrentShape] = useState<any>(null);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [autoPreview, setAutoPreview] = useState(true);
   const [uploadedImage, setUploadedImage] = useState<HTMLImageElement | null>(null);
 
   // Generation settings
@@ -149,15 +146,15 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
     smoothPoints.current = [];
   };
 
-  const saveCanvas = (includePrompt?: boolean) => {
+  const saveCanvas = (includePrompt?: boolean, autoGenerate: boolean = false) => {
     if (stageRef.current) {
       const dataURL = stageRef.current.toDataURL();
       if (onSave) {
         if (includePrompt && nodeId) {
-          // Pass back both image and prompt
-          onSave(dataURL, prompt);
+          // Pass back both image, prompt, and auto-generate flag
+          onSave(dataURL, prompt, autoGenerate);
         } else {
-          onSave(dataURL);
+          onSave(dataURL, undefined, autoGenerate);
         }
       }
       return dataURL;
@@ -168,7 +165,6 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
   const clearCanvas = () => {
     setShapes([]);
     setCurrentShape(null);
-    setPreviewImage(null);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,60 +182,12 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
     reader.readAsDataURL(file);
   };
 
-  const generatePreview = async () => {
-    if (credits < 1) {
-      alert('Insufficient credits! You need 1 credit for preview.');
-      return;
-    }
+  // Removed generatePreview - we're using Replicate for sketch generation directly
 
-    setIsGenerating(true);
-    try {
-      const imageData = saveCanvas();
-      if (!imageData) return;
-
-      const response = await fetch('/api/runcomfy/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: imageData,
-          prompt,
-          style,
-          aspectRatio,
-          seed: seed === -1 ? Math.floor(Math.random() * 1000000) : seed,
-          creativity: drawing.smoothing || 0.5,
-        }),
-      });
-
-      const data = await response.json();
-      if (data.output_url) {
-        setPreviewImage(data.output_url);
-        setCredits(credits - 1);
-      } else {
-        alert('Failed to generate preview: ' + (data.error || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Preview generation error:', error);
-      alert('Failed to generate preview. Check console for details.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  // Auto-update preview every 1-2 minutes if enabled
-  useEffect(() => {
-    if (!autoPreview || shapes.length === 0) return;
-
-    const interval = setInterval(() => {
-      if (credits >= 1) {
-        generatePreview();
-      }
-    }, 90000); // 1.5 minutes
-
-    return () => clearInterval(interval);
-  }, [autoPreview, shapes, credits]);
+  // Removed auto-preview - not needed with Replicate
 
   return (
-    <div className="flex flex-col gap-4 w-full">
+    <div className="flex flex-col gap-4 max-w-full overflow-hidden">
       {/* Drawing Tools - Above Canvas */}
       <div className="flex items-center justify-center gap-3 py-3 px-4 bg-zinc-900/50 rounded-lg border border-zinc-800">
         <div className="flex gap-2">
@@ -359,35 +307,23 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
         </button>
       </div>
 
-      {/* Canvas Container with Preview */}
-      <div className="relative">
-        {/* Preview Image - Bottom Left Corner */}
-        {previewImage && (
-          <div className="absolute -left-2 top-full mt-2 z-10 border-2 border-red-500 rounded-lg overflow-hidden shadow-xl">
-            <img
-              src={previewImage}
-              alt="Preview"
-              className="w-48 h-auto"
-            />
-            <div className="absolute top-2 right-2 bg-black/70 px-2 py-1 rounded text-xs text-white">
-              PREVIEW
-            </div>
-          </div>
-        )}
+      {/* Canvas Container */}
+      <div className="relative overflow-hidden rounded-lg">
 
         {/* Main Canvas */}
-        <Stage
-          width={width}
-          height={height}
-          onMouseDown={handleMouseDown}
-          onMousemove={handleMouseMove}
-          onMouseup={handleMouseUp}
-          onTouchStart={handleMouseDown}
-          onTouchMove={handleMouseMove}
-          onTouchEnd={handleMouseUp}
-          ref={stageRef}
-          className="border-2 border-zinc-700 rounded-lg bg-white cursor-crosshair shadow-lg"
-        >
+        <div className="inline-block">
+          <Stage
+            width={width}
+            height={height}
+            onMouseDown={handleMouseDown}
+            onMousemove={handleMouseMove}
+            onMouseup={handleMouseUp}
+            onTouchStart={handleMouseDown}
+            onTouchMove={handleMouseMove}
+            onTouchEnd={handleMouseUp}
+            ref={stageRef}
+            className="border-2 border-zinc-700 rounded-lg bg-white cursor-crosshair shadow-lg"
+          >
           <Layer>
             {/* Uploaded Image */}
             {uploadedImage && (
@@ -482,6 +418,7 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
             )}
           </Layer>
         </Stage>
+        </div>
       </div>
 
       {/* Prompt Box */}
@@ -490,9 +427,9 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe your action scene..."
-          className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg text-white placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
-          rows={3}
+          placeholder="Describe your action scene in detail - characters, movements, environment, cinematography..."
+          className="w-full px-5 py-4 bg-zinc-900 border border-zinc-800 rounded-lg text-white text-base placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-vertical min-h-[150px] leading-relaxed"
+          rows={6}
         />
       </div>
 
@@ -538,43 +475,32 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
         </div>
       </div>
 
-      {/* Preview and Generate Buttons */}
+      {/* Action Buttons */}
       <div className="flex gap-3">
-        <button
-          onClick={generatePreview}
-          disabled={isGenerating || credits < 1}
-          className="flex-1 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isGenerating ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              Generating...
-            </>
-          ) : (
-            <>
-              <Sparkles size={16} />
-              PREVIEW (1 credit)
-            </>
-          )}
-        </button>
-
-        <label className="flex items-center gap-2 text-xs text-zinc-500">
-          <input
-            type="checkbox"
-            checked={autoPreview}
-            onChange={(e) => setAutoPreview(e.target.checked)}
-            className="rounded"
-          />
-          Auto-update (1-2 min)
-        </label>
-
+        {/* Save Only Button */}
         <button
           onClick={() => {
-            saveCanvas(true);
+            saveCanvas(true, false); // Save with prompt, don't auto-generate
           }}
-          className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+          className="px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-medium transition-colors"
         >
-          Save & Close
+          Save Sketch
+        </button>
+
+        {/* Generate Button - Main CTA */}
+        <button
+          onClick={() => {
+            if (!prompt && shapes.length === 0) {
+              alert('Please draw something or add a prompt before generating!');
+              return;
+            }
+            saveCanvas(true, true); // Save with prompt and auto-generate
+          }}
+          disabled={credits < 1}
+          className="flex-1 px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-red-900 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Sparkles size={18} />
+          Generate Image (1 credit)
         </button>
       </div>
     </div>

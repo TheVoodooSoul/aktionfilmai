@@ -1,15 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Play, Trash2, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Play, Trash2, Image as ImageIcon, Sparkles, Maximize2 } from 'lucide-react';
 import Image from 'next/image';
+
+type AspectRatio = '16:9' | '1:1' | '9:16';
 
 interface NodeCardProps {
   node: {
     id: string;
-    type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 't2v' | 'lipsync' | 'action-pose' | 'coherent-scene' | 'image' | 'video';
+    type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 't2v' | 'lipsync' | 'action-pose' | 'coherent-scene' | 'image' | 'video' | string;
     x: number;
     y: number;
+    width?: number;
+    height?: number;
+    aspectRatio?: AspectRatio;
     imageData?: string;
     imageUrl?: string;
     videoUrl?: string;
@@ -37,11 +42,26 @@ interface NodeCardProps {
   isLinkSource?: boolean;
 }
 
+// Aspect ratio presets with dimensions
+const ASPECT_RATIOS: Record<AspectRatio, { width: number; previewAspect: string; label: string }> = {
+  '16:9': { width: 400, previewAspect: 'aspect-video', label: 'Landscape' },
+  '1:1': { width: 340, previewAspect: 'aspect-square', label: 'Square' },
+  '9:16': { width: 280, previewAspect: 'aspect-[9/16]', label: 'Portrait' },
+};
+
 export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit, isSelected, onClick, characterRefs, onSaveAsReference, onGenerateSequence, isLinkingMode, isLinkSource }: NodeCardProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [localPrompt, setLocalPrompt] = useState(node.prompt || '');
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const nodeRef = useRef<HTMLDivElement>(null);
+
+  // Get current aspect ratio settings
+  const currentAspect = node.aspectRatio || '16:9';
+  const aspectConfig = ASPECT_RATIOS[currentAspect];
+  const nodeWidth = aspectConfig.width;
 
   const getNodeTitle = () => {
     switch (node.type) {
@@ -104,6 +124,37 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
     setIsDragging(false);
   };
 
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsResizing(true);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: node.width || 480,
+      height: node.height || 720,
+    });
+  };
+
+  const handleResizeMove = (e: MouseEvent) => {
+    if (!isResizing) return;
+
+    const deltaX = e.clientX - resizeStart.x;
+    const deltaY = e.clientY - resizeStart.y;
+
+    const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, resizeStart.width + deltaX));
+    const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, resizeStart.height + deltaY));
+
+    onUpdate(node.id, {
+      width: newWidth,
+      height: newHeight,
+    });
+  };
+
+  const handleResizeEnd = () => {
+    setIsResizing(false);
+  };
+
   useEffect(() => {
     if (isDragging) {
       window.addEventListener('mousemove', handleMouseMove);
@@ -115,8 +166,20 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
     }
   }, [isDragging]);
 
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', handleResizeMove);
+      window.addEventListener('mouseup', handleResizeEnd);
+      return () => {
+        window.removeEventListener('mousemove', handleResizeMove);
+        window.removeEventListener('mouseup', handleResizeEnd);
+      };
+    }
+  }, [isResizing, resizeStart]);
+
   return (
     <div
+      ref={nodeRef}
       className={`absolute bg-[#1a1a1a] border-2 rounded-xl shadow-xl transition-all cursor-pointer ${
         isLinkSource
           ? 'border-green-500 shadow-green-500/20'
@@ -125,37 +188,58 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
           : isLinkingMode
           ? 'border-blue-500/50 hover:border-blue-500'
           : 'border-zinc-800 hover:border-zinc-700'
-      }`}
+      } ${isResizing ? 'select-none' : ''}`}
       style={{
         left: node.x,
         top: node.y,
-        width: 320,
+        width: nodeWidth,
         cursor: isDragging ? 'grabbing' : 'grab',
       }}
       onClick={onClick}
       onMouseDown={handleMouseDown}
     >
       {/* Node Header */}
-      <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+      <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-black text-red-500 bg-red-950 px-2 py-1 rounded">{getNodeIcon()}</span>
-          <span className="text-sm font-semibold text-white">{getNodeTitle()}</span>
+          <span className="text-[10px] font-black text-red-500 bg-red-950 px-1.5 py-0.5 rounded">{getNodeIcon()}</span>
+          <span className="text-xs font-semibold text-white truncate max-w-[120px]">{getNodeTitle()}</span>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(node.id);
-          }}
-          className="text-zinc-600 hover:text-red-500 transition-colors"
-        >
-          <Trash2 size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Aspect Ratio Selector */}
+          <div className="flex bg-black rounded overflow-hidden">
+            {(['16:9', '1:1', '9:16'] as AspectRatio[]).map((ratio) => (
+              <button
+                key={ratio}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdate(node.id, { aspectRatio: ratio });
+                }}
+                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${
+                  currentAspect === ratio
+                    ? 'bg-red-600 text-white'
+                    : 'text-zinc-500 hover:text-white'
+                }`}
+              >
+                {ratio}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(node.id);
+            }}
+            className="text-zinc-600 hover:text-red-500 transition-colors ml-1"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
 
       {/* Node Content */}
-      <div className="p-4 space-y-3">
-        {/* Preview Area - Movie Poster Style */}
-        <div className="relative aspect-[2/3] bg-black rounded-lg overflow-hidden border border-zinc-800 group">
+      <div className="p-3 space-y-2">
+        {/* Preview Area - Dynamic Aspect Ratio */}
+        <div className={`relative bg-black rounded-lg overflow-hidden border border-zinc-800 group ${aspectConfig.previewAspect}`}>
           {node.imageData && !node.imageUrl && (
             <>
               <img src={node.imageData} alt="Sketch" className="w-full h-full object-cover" />
@@ -183,175 +267,105 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
                   className="object-cover"
                 />
 
-                {/* Film grain overlay */}
-                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')] opacity-30 mix-blend-overlay pointer-events-none" />
-
-                {/* Dramatic gradient overlays */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent opacity-80" />
-                <div className="absolute inset-0 bg-gradient-to-b from-red-950/30 via-transparent to-transparent opacity-50" />
-
-                {/* Red accent lighting */}
-                <div className="absolute inset-0 bg-gradient-to-br from-red-600/20 via-transparent to-transparent mix-blend-screen opacity-40" />
-
-                {node.type === 'character' && (
-                  <>
-                    {/* Character name/title - Movie poster style */}
-                    <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
-                      <div className="space-y-1">
-                        {/* Character designation */}
-                        <div className="flex items-center gap-2">
-                          <div className="h-px bg-red-600 w-8" />
-                          <span className="text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase">Action Hero</span>
-                        </div>
-
-                        {/* Character prompt as title */}
-                        {localPrompt && (
-                          <h3 className="text-white font-black text-lg leading-tight tracking-tight uppercase line-clamp-2 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
-                            {localPrompt.substring(0, 50)}
-                          </h3>
-                        )}
-
-                        {/* Status indicators */}
-                        <div className="flex items-center gap-2 text-[10px] text-zinc-400 font-medium">
-                          {(node as any).avatarId && (
-                            <span className="flex items-center gap-1 text-green-400">
-                              <span className="w-1 h-1 bg-green-400 rounded-full animate-pulse" />
-                              AVATAR READY
-                            </span>
-                          )}
-                          {!(node as any).avatarId && (
-                            <span className="flex items-center gap-1 text-yellow-400">
-                              <span className="w-1 h-1 bg-yellow-400 rounded-full animate-pulse" />
-                              TRAINING...
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Corner accent */}
-                    <div className="absolute top-0 right-0 w-16 h-16 border-t-2 border-r-2 border-red-600 opacity-50" />
-                    <div className="absolute bottom-0 left-0 w-16 h-16 border-b-2 border-l-2 border-red-600 opacity-50" />
-                  </>
-                )}
+                {/* Subtle gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
               </div>
 
-              {/* Action buttons on hover */}
+              {/* Save as reference button */}
               {onSaveAsReference && node.type === 'character' && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onSaveAsReference(node.id);
                   }}
-                  className="absolute top-2 right-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded font-bold transition-all opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 shadow-lg z-10"
+                  className="absolute top-1 right-1 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] rounded font-medium transition-all opacity-0 group-hover:opacity-100 shadow-lg z-10"
                 >
-                  <span className="flex items-center gap-1">
-                    <Sparkles size={12} />
-                    SAVE AS @ REF
-                  </span>
+                  <Sparkles size={10} className="inline mr-1" />
+                  Save @
                 </button>
               )}
             </>
           )}
           {node.videoUrl && (
-            <video src={node.videoUrl} controls className="w-full h-full" />
+            <video src={node.videoUrl} controls className="w-full h-full object-cover" />
           )}
           {!node.imageData && !node.imageUrl && !node.videoUrl && (
-            <div className="flex flex-col items-center justify-center h-full text-zinc-600 text-sm gap-3">
-              <ImageIcon size={48} className="opacity-30" />
-              <div className="text-center px-4">
-                <p className="text-zinc-500 text-xs">No preview yet</p>
-                <p className="text-zinc-700 text-[10px] mt-1">Generate to create your character</p>
-              </div>
+            <div className="flex flex-col items-center justify-center h-full text-zinc-600">
+              <ImageIcon size={32} className="opacity-30" />
+              <p className="text-zinc-600 text-[10px] mt-1">No preview</p>
             </div>
           )}
         </div>
 
-        {/* Prompt Input - Different for each type */}
+        {/* Prompt Input - Compact for each type */}
         {node.type === 'lipsync' ? (
-          <div>
-            <label className="text-xs text-zinc-500 mb-1 block">Dialogue</label>
+          <textarea
+            value={node.dialogue || ''}
+            onChange={(e) => onUpdate(node.id, { dialogue: e.target.value })}
+            placeholder="Dialogue..."
+            className="w-full px-2 py-1.5 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+            rows={2}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : node.type === 'action-pose' ? (
+          <div className="space-y-1.5">
+            <select
+              value={node.settings?.actionType || 'punch'}
+              onChange={(e) => onUpdate(node.id, {
+                settings: { ...node.settings, actionType: e.target.value }
+              })}
+              className="w-full px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs focus:outline-none focus:border-red-600 cursor-pointer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="punch">Punch</option>
+              <option value="kick">Kick</option>
+              <option value="takedown">Takedown</option>
+            </select>
             <textarea
-              value={node.dialogue || ''}
-              onChange={(e) => onUpdate(node.id, { dialogue: e.target.value })}
-              placeholder="What does your character say?"
-              className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-lg text-white text-sm placeholder-zinc-700 focus:outline-none focus:border-red-600 resize-none"
+              value={localPrompt}
+              onChange={(e) => {
+                setLocalPrompt(e.target.value);
+                onUpdate(node.id, { prompt: e.target.value });
+              }}
+              placeholder="Scene details..."
+              className="w-full px-2 py-1.5 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
               rows={2}
               onClick={(e) => e.stopPropagation()}
             />
           </div>
-        ) : node.type === 'action-pose' ? (
-          <div className="space-y-2">
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">Action Pose</label>
-              <select
-                value={node.settings?.actionType || 'punch'}
-                onChange={(e) => onUpdate(node.id, {
-                  settings: { ...node.settings, actionType: e.target.value }
-                })}
-                className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-lg text-white text-sm focus:outline-none focus:border-red-600 cursor-pointer"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <option value="punch">Punch</option>
-                <option value="kick">Kick</option>
-                <option value="takedown">Takedown</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">Description (optional)</label>
-              <textarea
-                value={localPrompt}
-                onChange={(e) => {
-                  setLocalPrompt(e.target.value);
-                  onUpdate(node.id, { prompt: e.target.value });
-                }}
-                placeholder="Additional scene details..."
-                className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-lg text-white text-sm placeholder-zinc-700 focus:outline-none focus:border-red-600 resize-none"
-                rows={2}
-                onClick={(e) => e.stopPropagation()}
-              />
-            </div>
-          </div>
         ) : node.type === 'scene' ? (
-          <div className="space-y-2">
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">Action Type</label>
-              <select
-                value={node.settings?.actionType || 'fight'}
-                onChange={(e) => onUpdate(node.id, {
-                  settings: { ...node.settings, actionType: e.target.value }
-                })}
-                className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-lg text-white text-sm focus:outline-none focus:border-red-600 cursor-pointer"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <option value="fight">Fight Scene</option>
-                <option value="chase">Chase Scene</option>
-                <option value="explosion">Explosion</option>
-                <option value="gunfight">Gun Fight</option>
-                <option value="martial-arts">Martial Arts</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">Scene Description</label>
-              <textarea
-                value={localPrompt}
-                onChange={(e) => {
-                  setLocalPrompt(e.target.value);
-                  onUpdate(node.id, { prompt: e.target.value });
-                }}
-                placeholder="Describe the action scene in detail..."
-                className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-lg text-white text-sm placeholder-zinc-700 focus:outline-none focus:border-red-600 resize-none"
-                rows={2}
-                onClick={(e) => e.stopPropagation()}
-              />
-            </div>
+          <div className="space-y-1.5">
+            <select
+              value={node.settings?.actionType || 'fight'}
+              onChange={(e) => onUpdate(node.id, {
+                settings: { ...node.settings, actionType: e.target.value }
+              })}
+              className="w-full px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs focus:outline-none focus:border-red-600 cursor-pointer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="fight">Fight</option>
+              <option value="chase">Chase</option>
+              <option value="explosion">Explosion</option>
+              <option value="gunfight">Gun Fight</option>
+              <option value="martial-arts">Martial Arts</option>
+            </select>
+            <textarea
+              value={localPrompt}
+              onChange={(e) => {
+                setLocalPrompt(e.target.value);
+                onUpdate(node.id, { prompt: e.target.value });
+              }}
+              placeholder="Scene description..."
+              className="w-full px-2 py-1.5 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+              rows={2}
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
         ) : (
-          <div>
+          <div className="space-y-1.5">
             {/* Character Upload Option */}
             {node.type === 'character' && (
-              <div className="mb-3">
-                <label className="text-xs text-zinc-500 mb-1 block">Upload Character (Image or Video)</label>
+              <div>
                 <input
                   type="file"
                   accept="image/*,video/*"
@@ -369,23 +383,14 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
                       reader.readAsDataURL(file);
                     }
                   }}
-                  className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-lg text-white text-sm focus:outline-none focus:border-red-600 file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-red-600 file:text-white hover:file:bg-red-700"
+                  className="w-full px-2 py-1 bg-black border border-zinc-800 rounded text-white text-[10px] focus:outline-none focus:border-red-600 file:mr-2 file:py-0.5 file:px-2 file:rounded file:border-0 file:text-[10px] file:bg-red-600 file:text-white"
                   onClick={(e) => e.stopPropagation()}
                 />
                 {(node as any).uploadedFilePreview && (
-                  <div className="mt-2 text-xs text-green-500">
-                    ✓ {(node as any).uploadedFileType === 'video' ? 'Video' : 'Image'} uploaded (FREE avatar training!)
-                  </div>
+                  <p className="text-[10px] text-green-500 mt-0.5">✓ Uploaded</p>
                 )}
-                <div className="mt-1 text-xs text-zinc-600">
-                  Video: FREE avatar training, better lipsync | Image: 30 credits
-                </div>
               </div>
             )}
-
-            <label className="text-xs text-zinc-500 mb-1 block">
-              {node.type === 'character' ? 'Or Generate from Prompt (2 credits)' : 'Prompt'}
-            </label>
             <textarea
               value={localPrompt}
               onChange={(e) => {
@@ -393,11 +398,11 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
                 onUpdate(node.id, { prompt: e.target.value });
               }}
               placeholder={
-                node.type === 'character' ? 'Describe your action hero character...' :
-                node.type === 'i2v' ? 'Describe the action movement...' :
-                'Describe the action scene...'
+                node.type === 'character' ? 'Character description...' :
+                node.type === 'i2v' ? 'Movement & action...' :
+                'Prompt...'
               }
-              className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-lg text-white text-sm placeholder-zinc-700 focus:outline-none focus:border-red-600 resize-none"
+              className="w-full px-2 py-1.5 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
               rows={2}
               onClick={(e) => e.stopPropagation()}
             />
@@ -406,43 +411,32 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
 
         {/* Character Reference Selector */}
         {characterRefs && characterRefs.length > 0 && (node.type === 'scene' || node.type === 'i2v' || node.type === 'lipsync' || node.type === 'action-pose' || node.type === 'i2i') && (
-          <div>
-            <label className="text-xs text-zinc-500 mb-1 block">Character Reference</label>
-            <select
-              value={node.settings?.characterRefs?.[0] || ''}
-              onChange={(e) => {
-                const selectedRef = e.target.value;
-                onUpdate(node.id, {
-                  settings: {
-                    ...node.settings,
-                    characterRefs: selectedRef ? [selectedRef] : []
-                  }
-                });
-              }}
-              className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-lg text-white text-sm focus:outline-none focus:border-red-600 cursor-pointer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <option value="">None</option>
-              {characterRefs.map(ref => (
-                <option key={ref.id} value={ref.id}>
-                  {ref.name || 'Unnamed Character'}
-                </option>
-              ))}
-            </select>
-            {node.settings?.characterRefs?.[0] && (
-              <div className="mt-1 text-xs text-red-500">
-                ● Connected to character
-              </div>
-            )}
-          </div>
+          <select
+            value={node.settings?.characterRefs?.[0] || ''}
+            onChange={(e) => {
+              const selectedRef = e.target.value;
+              onUpdate(node.id, {
+                settings: {
+                  ...node.settings,
+                  characterRefs: selectedRef ? [selectedRef] : []
+                }
+              });
+            }}
+            className="w-full px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs focus:outline-none focus:border-red-600 cursor-pointer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <option value="">@ Character Ref</option>
+            {characterRefs.map(ref => (
+              <option key={ref.id} value={ref.id}>
+                @{ref.name || 'Unnamed'}
+              </option>
+            ))}
+          </select>
         )}
 
-        {/* Creativity Slider */}
-        <div>
-          <label className="text-xs text-zinc-500 mb-1 block flex items-center justify-between">
-            <span>Creativity</span>
-            <span className="text-white font-medium">{Math.round((node.settings?.creativity || 0.7) * 100)}%</span>
-          </label>
+        {/* Creativity Slider - Compact inline */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-zinc-500">Creativity</span>
           <input
             type="range"
             min="0"
@@ -451,9 +445,10 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
             onChange={(e) => onUpdate(node.id, {
               settings: { ...node.settings, creativity: parseInt(e.target.value) / 100 }
             })}
-            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+            className="flex-1 h-1 bg-zinc-800 rounded appearance-none cursor-pointer"
             onClick={(e) => e.stopPropagation()}
           />
+          <span className="text-[10px] text-white w-6">{Math.round((node.settings?.creativity || 0.7) * 100)}%</span>
         </div>
 
         {/* Generate Button */}
@@ -463,51 +458,47 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
             handleGenerate();
           }}
           disabled={isGenerating}
-          className="w-full px-4 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-zinc-800 text-white text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
+          className="w-full px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-zinc-800 text-white text-xs font-medium rounded flex items-center justify-center gap-1.5 transition-colors"
         >
           {isGenerating ? (
             <>
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
               Generating...
             </>
           ) : (
             <>
-              <Play size={16} />
+              <Play size={12} />
               Generate
             </>
           )}
         </button>
 
-        {/* Generate Sequence Button (when node has a connection) */}
+        {/* Generate Sequence Button */}
         {onGenerateSequence && (
           <button
             onClick={(e) => {
               e.stopPropagation();
               onGenerateSequence();
             }}
-            className="w-full px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
+            className="w-full px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded flex items-center justify-center gap-1.5 transition-colors"
           >
-            <Play size={16} />
-            Generate Sequence
+            <Play size={12} />
+            Sequence
           </button>
         )}
 
         {/* Linking Mode Indicator */}
         {isLinkingMode && !isLinkSource && (
-          <div className="text-xs text-center text-zinc-500 italic">
-            Click to link as target frame
-          </div>
+          <p className="text-[10px] text-center text-zinc-500">Click to link</p>
         )}
         {isLinkSource && (
-          <div className="text-xs text-center text-green-500 font-medium">
-            ✓ Source frame selected
-          </div>
+          <p className="text-[10px] text-center text-green-500">✓ Source</p>
         )}
       </div>
 
       {/* Connection Points */}
-      <div className="absolute -right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 bg-red-600 rounded-full border-2 border-[#1a1a1a] cursor-pointer hover:scale-110 transition-transform" />
-      <div className="absolute -left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 bg-zinc-600 rounded-full border-2 border-[#1a1a1a]" />
+      <div className="absolute -right-1.5 top-1/2 transform -translate-y-1/2 w-3 h-3 bg-red-600 rounded-full border-2 border-[#1a1a1a] cursor-pointer hover:scale-110 transition-transform" />
+      <div className="absolute -left-1.5 top-1/2 transform -translate-y-1/2 w-3 h-3 bg-zinc-600 rounded-full border-2 border-[#1a1a1a]" />
     </div>
   );
 }

@@ -1,5 +1,7 @@
 'use client';
 
+import dynamic from 'next/dynamic';
+
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/store';
 import { supabase } from '@/lib/supabase';
@@ -24,9 +26,19 @@ export default function CanvasPage() {
   const [characterPrompt, setCharacterPrompt] = useState('');
   const [linkingMode, setLinkingMode] = useState(false);
   const [linkSourceNode, setLinkSourceNode] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+  const [modalSize, setModalSize] = useState({ width: 1200, height: 700 });
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Set mounted state for hydration safety
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Initialize super admin user and test credits
   useEffect(() => {
+    if (!isMounted) return;
+    
     // Auto-login super admin if no user exists
     if (!user) {
       const superAdmin = {
@@ -45,10 +57,12 @@ export default function CanvasPage() {
     if (credits === 0) {
       setCredits(9999); // Give unlimited credits for super admin
     }
-  }, [credits, user]); // Zustand setters are stable and don't need to be in deps
+  }, [credits, user, isMounted]); // Zustand setters are stable and don't need to be in deps
 
   // Load character references
   useEffect(() => {
+    if (!isMounted) return;
+    
     const loadCharacterRefs = async () => {
       if (!user) return;
       const { data } = await supabase
@@ -59,17 +73,18 @@ export default function CanvasPage() {
       if (data) setCharacterRefs(data);
     };
     loadCharacterRefs();
-  }, [user]);
+  }, [user, isMounted]);
 
   // Create new node based on type
-  const createNewNode = (type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 't2v' | 'lipsync' | 'action-pose' | 'coherent-scene') => {
+  const createNewNode = (type: 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 'v2v' | 't2v' | 'text2video' | 'lipsync' | 'talking-photo' | 'face-swap' | 'action-pose' | 'coherent-scene' | 'wan-i2v' | 'wan-vace' | 'wan-first-last' | 'wan-animate' | 'wan-fast' | 'wan-t2v' | 'nanobanana') => {
     const newNode: NodeType = {
       id: uuidv4(),
       type,
       x: Math.random() * 400 + 200,
       y: Math.random() * 200 + 150,
-      width: 320,
-      height: type === 'coherent-scene' ? 600 : 400, // Taller for 6 images
+      width: 400,
+      height: 300,
+      aspectRatio: '16:9', // Default to landscape
       prompt: '',
       coherentImages: type === 'coherent-scene' ? [] : undefined,
       settings: {
@@ -88,14 +103,29 @@ export default function CanvasPage() {
   };
 
   // Save sketch from drawing canvas
-  const handleSaveSketch = (imageData: string, prompt?: string) => {
+  const handleSaveSketch = async (imageData: string, prompt?: string, autoGenerate: boolean = false) => {
     if (currentNodeId) {
+      // First update the node with the image data
       updateNode(currentNodeId, {
         imageData,
-        ...(prompt && { prompt }) // Save prompt if provided
+        ...(prompt && { prompt }), // Save prompt if provided
+        isGenerating: autoGenerate // Mark as generating if auto-generate
       });
+      
+      // Close the modal
       setShowDrawingModal(false);
+      
+      // Store the nodeId for generation
+      const nodeIdToGenerate = currentNodeId;
       setCurrentNodeId(null);
+      
+      // Auto-generate if requested
+      if (autoGenerate) {
+        // Directly call generate after a short delay for modal to close
+        setTimeout(() => {
+          handleGenerateWithImageData(nodeIdToGenerate, imageData, prompt);
+        }, 100);
+      }
     }
   };
 
@@ -166,28 +196,66 @@ export default function CanvasPage() {
     return processedPrompt;
   };
 
-  // Generate using appropriate API based on node type
-  const handleGenerate = async (nodeId: string) => {
-    console.log('HANDLEGENERATE CALLED WITH NODE ID:', nodeId);
+  // Helper function to generate with provided image data
+  const handleGenerateWithImageData = async (nodeId: string, providedImageData?: string, providedPrompt?: string) => {
+    console.log('HANDLEGENERATE WITH IMAGE DATA:', nodeId, !!providedImageData);
     const node = canvas.nodes.find(n => n.id === nodeId);
-    console.log('FOUND NODE:', node);
     if (!node) {
       console.log('NO NODE FOUND - RETURNING');
       return;
     }
+    
+    // Use provided data if available, otherwise use node's data
+    const actualImageData = providedImageData || node.imageData;
+    const actualPrompt = providedPrompt || node.prompt;
+    
+    // Call the main generate function with the updated node
+    const updatedNode = { ...node, imageData: actualImageData, prompt: actualPrompt };
+    await handleGenerateInternal(updatedNode, nodeId);
+  };
+  
+  // Main generate function
+  const handleGenerate = async (nodeId: string) => {
+    const node = canvas.nodes.find(n => n.id === nodeId);
+    if (!node) {
+      console.log('NO NODE FOUND - RETURNING');
+      return;
+    }
+    await handleGenerateInternal(node, nodeId);
+  };
+  
+  // Internal generate logic
+  const handleGenerateInternal = async (node: any, nodeId: string) => {
+    console.log('HANDLEGENERATE INTERNAL - NODE:', node.type, 'HAS IMAGE:', !!node.imageData)
 
-    // Credit costs per node type
+    // Credit costs per node type (based on actual API costs)
     const creditCosts: Record<string, number> = {
-      'character': 2,
+      // Images
+      'character': 2,  // A2E text-to-image
+      'sketch': 1,  // Replicate ControlNet
+      'i2i': 2,  // A2E character generation
+      't2i': 2,  // A2E text-to-image
+      // A2E Video
       'scene': 3,
+      'i2v': 100,  // A2E image-to-video (5sec 720p, ~10min processing)
+      'v2v': 120,  // A2E video-to-video
+      't2v': 50,  // A2E talking portrait
+      'nanobanana': 3,  // A2E multi-character
+      'lipsync': 3,  // A2E lipsync
+      'talking-photo': 5,  // A2E talking photo
+      'face-swap': 5,  // A2E face swap
+      // Wan Direct (Replicate)
+      'wan-i2v': 80,  // Wan 2.5 i2v
+      'wan-t2v': 40,  // Wan text-to-video
+      'wan-fast': 30,  // Wan 2.2 fast
+      'wan-first-last': 60,  // Wan frame interpolation
+      'wan-animate': 70,  // Wan animation
+      'wan-vace': 50,  // Wan VACE
+      // Text to video
+      'text2video': 80,  // A2E text-to-video
+      // Scenes
       'action-pose': 2,
-      'sketch': 1,
-      'i2i': 5,
-      't2i': 2, // A2E character generation
-      'i2v': 8,
-      't2v': 5, // A2E talking portrait
-      'lipsync': 3,
-      'coherent-scene': 10, // High cost due to 10-15 min processing
+      'coherent-scene': 10,
       'image': 0,
       'video': 0,
     };
@@ -267,14 +335,28 @@ export default function CanvasPage() {
           break;
 
         case 'action-pose':
+          // Check if action pose has been drawn
+          if (!node.imageData) {
+            alert('Please draw your action pose first before generating!');
+            setIsLoading(false);
+            return;
+          }
           endpoint = '/api/fal/action-lora';
           body.image = node.imageData;
           body.actionType = node.settings?.actionType || 'punch';
           break;
 
         case 'sketch':
-        case 'i2i':
-          console.log('HIT SKETCH/I2I CASE - ROUTING TO REPLICATE CONTROLNET SCRIBBLE');
+          // Sketch always uses Replicate ControlNet Scribble (NO SAFETY FILTERS)
+          console.log('SKETCH - Using Replicate ControlNet Scribble');
+          
+          // Check if sketch has been drawn
+          if (!node.imageData) {
+            alert('Please draw your sketch first before generating!');
+            setIsLoading(false);
+            return;
+          }
+          
           endpoint = '/api/replicate/sketch-to-image';
           body.image = node.imageData; // Base64 sketch data
           body.creativity = node.settings?.creativity || 0.7;
@@ -290,6 +372,22 @@ export default function CanvasPage() {
             }));
           }
           break;
+          
+        case 'i2i':
+          // Image to Image uses A2E for consistency
+          console.log('I2I - Using A2E character generation');
+          
+          // Check if image has been uploaded or drawn
+          if (!node.imageData && !node.imageUrl) {
+            alert('Please upload or draw an image first!');
+            setIsLoading(false);
+            return;
+          }
+          
+          endpoint = '/api/a2e/character';
+          body.image = node.imageUrl || node.imageData;
+          body.creativity = node.settings?.creativity || 0.7;
+          break;
 
         case 't2i':
           // Use A2E for consistent character generation
@@ -299,20 +397,41 @@ export default function CanvasPage() {
           break;
 
         case 'i2v':
+          // Image to Video - A2E
+          console.log('I2V - Using A2E image to video');
           endpoint = '/api/a2e/i2v';
           body.image = node.imageUrl || node.imageData;
           break;
 
         case 'lipsync':
+          // Lipsync - A2E
+          console.log('LIPSYNC - Using A2E lipsync');
           endpoint = '/api/a2e/lipsync';
           body.image = node.imageUrl || node.imageData;
-          body.text = node.dialogue || '';
+          body.text = node.dialogue || prompt || 'Action hero speech';
+          break;
+          
+        case 'face-swap':
+          // Face Swap - A2E
+          console.log('FACE SWAP - Using A2E face swap');
+          endpoint = '/api/a2e/face-swap';
+          body.source_image = node.imageData; // Face to swap in
+          body.target_image = node.targetImage; // Image/video to swap onto
+          break;
+          
+        case 'talking-photo':
+          // Talking Photo - A2E
+          console.log('TALKING PHOTO - Using A2E talking photo');
+          endpoint = '/api/a2e/talking-photo';
+          body.image = node.imageUrl || node.imageData;
+          body.text = node.dialogue || node.prompt || 'Action hero speech';
           break;
 
         case 't2v':
-          // Talking Portrait - A2E talking video
+          // Text to Video (Talking Portrait) - A2E
+          console.log('T2V - Using A2E talking portrait');
           endpoint = '/api/a2e/t2v';
-          body.text = node.dialogue || node.prompt || '';
+          body.text = node.dialogue || node.prompt || 'Action hero speech';
           // If character has avatar_id, use it; otherwise generate from prompt
           if ((node as any).avatarId) {
             body.avatar_id = (node as any).avatarId;
@@ -337,6 +456,96 @@ export default function CanvasPage() {
           body.images = node.coherentImages;
           break;
 
+        // === NEW A2E NODES ===
+        case 'v2v':
+          // Video to Video - A2E
+          console.log('V2V - Using A2E video to video');
+          if (!node.videoUrl) {
+            alert('Please upload a video first!');
+            setIsLoading(false);
+            return;
+          }
+          endpoint = '/api/a2e/v2v';
+          body.videoUrl = node.videoUrl;
+          body.strength = node.settings?.creativity || 0.7;
+          break;
+
+        case 'nanobanana':
+          // NanoBanana - Multi-character scene
+          console.log('NANOBANANA - Multi-character scene');
+          endpoint = '/api/a2e/nanobanana';
+          body.characterRefs = characterRefs;
+          body.sketch = node.imageData;
+          break;
+
+        // === WAN DIRECT NODES ===
+        case 'wan-i2v':
+          // Wan 2.5 Image to Video (Replicate)
+          console.log('WAN-I2V - Using Replicate Wan 2.5');
+          if (!node.imageUrl && !node.imageData) {
+            alert('Please add an image first!');
+            setIsLoading(false);
+            return;
+          }
+          endpoint = '/api/replicate/wan-i2v';
+          body.image = node.imageUrl || node.imageData;
+          break;
+
+        case 'wan-fast':
+          // Wan 2.2 Fast (Replicate)
+          console.log('WAN-FAST - Using Replicate Wan 2.2 Fast');
+          endpoint = '/api/replicate/wan-fast';
+          body.image = node.imageUrl || node.imageData;
+          break;
+
+        case 'wan-first-last':
+          // Wan First-Last Frame Interpolation
+          console.log('WAN-FIRST-LAST - Frame interpolation');
+          if (!node.firstFrame || !node.lastFrame) {
+            alert('Please add both first and last frame images!');
+            setIsLoading(false);
+            return;
+          }
+          endpoint = '/api/replicate/wan-first-last';
+          body.firstFrame = node.firstFrame;
+          body.lastFrame = node.lastFrame;
+          break;
+
+        case 'wan-animate':
+          // Wan 2.2 Animate
+          console.log('WAN-ANIMATE - Character animation');
+          if (!node.imageUrl && !node.imageData) {
+            alert('Please add an image to animate!');
+            setIsLoading(false);
+            return;
+          }
+          endpoint = '/api/replicate/wan-animate';
+          body.image = node.imageUrl || node.imageData;
+          body.mode = node.settings?.animateMode || 'animation';
+          break;
+
+        case 'wan-vace':
+          // Wan VACE - Video editing with references
+          console.log('WAN-VACE - Video editing');
+          endpoint = '/api/replicate/wan-vace';
+          body.srcVideo = node.videoUrl;
+          body.srcRefImages = node.referenceImages || [];
+          break;
+
+        case 'wan-t2v':
+          // Wan Text to Video (Replicate)
+          console.log('WAN-T2V - Text to video');
+          endpoint = '/api/replicate/wan-t2v';
+          // processedPrompt already has @name replaced with character info
+          break;
+
+        case 'text2video':
+          // A2E Text to Video - generate video from prompt
+          console.log('TEXT2VIDEO - A2E text to video');
+          endpoint = '/api/a2e/text2video';
+          // processedPrompt already has @name replaced with character info
+          break;
+
         default:
           alert('Unknown node type');
           setIsLoading(false);
@@ -351,7 +560,9 @@ export default function CanvasPage() {
 
       const data = await response.json();
       if (data.output_url) {
-        const outputType = node.type === 'i2v' || node.type === 'lipsync' ? 'video' : 'image';
+        // Determine if output is video based on node type
+        const videoNodeTypes = ['i2v', 'v2v', 't2v', 'text2video', 'lipsync', 'wan-i2v', 'wan-t2v', 'wan-fast', 'wan-first-last', 'wan-animate', 'wan-vace'];
+        const outputType = videoNodeTypes.includes(node.type) ? 'video' : 'image';
 
         if (outputType === 'video') {
           updateNode(nodeId, { videoUrl: data.output_url });
@@ -788,9 +999,9 @@ export default function CanvasPage() {
             <div className="flex items-center gap-2">
               <div className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center gap-2">
                 <Sparkles size={16} className="text-red-500" />
-                <span className="text-sm font-medium">{credits}</span>
+                <span className="text-sm font-medium">{isMounted ? credits : '...'}</span>
                 <span className="text-xs text-zinc-500">credits</span>
-                {(user as any)?.role === 'superadmin' && (
+                {isMounted && (user as any)?.role === 'superadmin' && (
                   <span className="text-xs text-red-500 font-semibold">∞</span>
                 )}
               </div>
@@ -887,7 +1098,7 @@ export default function CanvasPage() {
                   value={characterPrompt}
                   onChange={(e) => setCharacterPrompt(e.target.value)}
                   placeholder="Describe your fighter... (e.g., muscular bald man with scars)"
-                  className="flex-1 px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+                  className="flex-1 px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-vertical min-h-[60px]"
                 />
                 <div className="flex gap-1">
                   <button
@@ -980,7 +1191,7 @@ export default function CanvasPage() {
                   value={characterPrompt}
                   onChange={(e) => setCharacterPrompt(e.target.value)}
                   placeholder="Describe your fighter... (e.g., tough woman with mohawk)"
-                  className="flex-1 px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+                  className="flex-1 px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-vertical min-h-[60px]"
                 />
                 <div className="flex gap-1">
                   <button
@@ -1120,14 +1331,13 @@ export default function CanvasPage() {
             ))}
           </div>
 
-          {/* Empty State - Only show when no nodes have been created */}
-          {canvas.nodes.length === 0 && (
+          {/* Empty State - Client-side only to avoid hydration issues */}
+          {isMounted && canvas.nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center space-y-4 max-w-md">
-                <div className="text-6xl mb-4">🎬</div>
-                <h2 className="text-2xl font-bold text-zinc-700">Start Creating</h2>
-                <p className="text-zinc-600">
-                  Click the + button below to add your first node and start creating action sequences
+              <div className="text-center space-y-4 max-w-md opacity-50">
+                <h2 className="text-2xl font-bold text-zinc-800">Click + to add your first node</h2>
+                <p className="text-zinc-700 text-sm">
+                  Create action sequences with sketch nodes, character nodes, and more
                 </p>
               </div>
             </div>
@@ -1151,28 +1361,117 @@ export default function CanvasPage() {
       {/* Epic Scene Panel */}
       <EpicScenePanel onGenerate={handleEpicSceneGenerate} isGenerating={isLoading} />
 
-      {/* Drawing Modal - Full Screen */}
+      {/* Drawing Modal - Resizable */}
       {showDrawingModal && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 overflow-auto">
-          <div className="min-h-screen p-6">
-            <div className="flex items-center justify-between mb-6">
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div 
+            className="relative bg-zinc-950 rounded-xl border border-zinc-800 flex flex-col"
+            style={{ 
+              width: `${modalSize.width}px`, 
+              height: `${modalSize.height}px`,
+              maxWidth: '95vw',
+              maxHeight: '95vh'
+            }}
+          >
+            {/* Header with drag handle */}
+            <div className="flex items-center justify-between p-4 border-b border-zinc-800 cursor-move select-none">
               <h2 className="text-xl font-bold text-white">Draw Your Sketch</h2>
-              <button
-                onClick={() => {
-                  setShowDrawingModal(false);
-                  setCurrentNodeId(null);
-                }}
-                className="text-zinc-400 hover:text-white text-2xl px-4 py-2"
-              >
-                ✕ Close
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Size Presets */}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setModalSize({ width: 800, height: 600 })}
+                    className="px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white"
+                  >
+                    Small
+                  </button>
+                  <button
+                    onClick={() => setModalSize({ width: 1200, height: 700 })}
+                    className="px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white"
+                  >
+                    Medium
+                  </button>
+                  <button
+                    onClick={() => setModalSize({ width: 1400, height: 800 })}
+                    className="px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white"
+                  >
+                    Large
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Fit to window
+                      setModalSize({
+                        width: Math.min(window.innerWidth - 100, 1600),
+                        height: Math.min(window.innerHeight - 100, 900)
+                      });
+                    }}
+                    className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded text-white"
+                  >
+                    Fit Screen
+                  </button>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowDrawingModal(false);
+                    setCurrentNodeId(null);
+                  }}
+                  className="text-zinc-400 hover:text-white text-2xl px-2"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
-            <DrawingCanvas
-              width={1200}
-              height={700}
-              onSave={handleSaveSketch}
-              nodeId={currentNodeId || undefined}
-            />
+            
+            {/* Canvas Container */}
+            <div className="flex-1 overflow-auto p-4">
+              {isMounted && (
+                <DrawingCanvas
+                  width={modalSize.width - 80}
+                  height={modalSize.height - 120}
+                  onSave={(imageData, prompt, autoGenerate) => handleSaveSketch(imageData, prompt, autoGenerate || false)}
+                  nodeId={currentNodeId || undefined}
+                />
+              )}
+            </div>
+            
+            {/* Resize Handle - Bottom Right Corner */}
+            <div
+              className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize group hover:bg-red-600/20 rounded-tl-lg transition-colors"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsResizing(true);
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const startWidth = modalSize.width;
+                const startHeight = modalSize.height;
+                
+                const handleMouseMove = (e: MouseEvent) => {
+                  const newWidth = Math.max(600, Math.min(window.innerWidth - 50, startWidth + e.clientX - startX));
+                  const newHeight = Math.max(400, Math.min(window.innerHeight - 50, startHeight + e.clientY - startY));
+                  setModalSize({ width: newWidth, height: newHeight });
+                };
+                
+                const handleMouseUp = () => {
+                  setIsResizing(false);
+                  document.removeEventListener('mousemove', handleMouseMove);
+                  document.removeEventListener('mouseup', handleMouseUp);
+                };
+                
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+              }}
+            >
+              <svg className="w-6 h-6 text-zinc-600 group-hover:text-red-500" viewBox="0 0 24 24">
+                <path fill="currentColor" d="M22 22H20V20H22V22M22 18H20V16H22V18M18 22H16V20H18V22M18 18H16V16H18V18M14 22H12V20H14V22M22 14H20V12H22V14Z"/>
+              </svg>
+            </div>
+            
+            {/* Size indicator */}
+            {isResizing && (
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/80 px-3 py-1 rounded text-sm text-white pointer-events-none">
+                {modalSize.width} × {modalSize.height}
+              </div>
+            )}
           </div>
         </div>
       )}

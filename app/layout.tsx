@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,20 +40,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <head>
-        {/* Termly Consent Management */}
-        <script
-          type="text/javascript"
-          src="https://app.termly.io/embed.min.js"
-          data-auto-block="on"
-          data-website-uuid="73ab4ad9-3d47-4629-879c-1ed934ff097b"
-        ></script>
-      </head>
+    <html lang="en" suppressHydrationWarning>
+      <head />
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        {/* Termly Consent Management - loaded after hydration */}
+        <Script
+          src="https://app.termly.io/embed.min.js"
+          data-auto-block="on"
+          data-website-uuid="73ab4ad9-3d47-4629-879c-1ed934ff097b"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );

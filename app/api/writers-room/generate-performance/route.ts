@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CREDIT_COSTS, checkCredits, deductCredits, refundCredits } from '@/lib/credits';
 
 /**
  * Writers Room - Generate Avatar Performance
@@ -20,6 +21,30 @@ export async function POST(req: NextRequest) {
         { error: 'videoUrl and avatarId are required' },
         { status: 400 }
       );
+    }
+
+    // Check and deduct credits
+    if (userId) {
+      const creditCheck = await checkCredits(userId, CREDIT_COSTS.WRITERS_ROOM_PERFORMANCE);
+      if (!creditCheck.success) {
+        return NextResponse.json(
+          { error: creditCheck.error },
+          { status: 402 }  // Payment Required
+        );
+      }
+      
+      const deductResult = await deductCredits(
+        userId,
+        CREDIT_COSTS.WRITERS_ROOM_PERFORMANCE,
+        `Writers Room - Avatar Performance for ${characterName}`
+      );
+      
+      if (!deductResult.success) {
+        return NextResponse.json(
+          { error: 'Failed to process payment' },
+          { status: 500 }
+        );
+      }
     }
 
     // For now, we'll use A2E's talking video API directly with the video URL
@@ -45,6 +70,14 @@ export async function POST(req: NextRequest) {
     console.log('A2E Talking Video Response:', responseText.substring(0, 500));
 
     if (!response.ok) {
+      // Refund credits on failure
+      if (userId) {
+        await refundCredits(
+          userId,
+          CREDIT_COSTS.WRITERS_ROOM_PERFORMANCE,
+          'Refund - Avatar Performance failed'
+        );
+      }
       return NextResponse.json(
         { error: `A2E API error: ${response.status} - ${responseText.substring(0, 200)}` },
         { status: 500 }

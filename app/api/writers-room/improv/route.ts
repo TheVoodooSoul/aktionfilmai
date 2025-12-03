@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CREDIT_COSTS, checkCredits, deductCredits } from '@/lib/credits';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
 
 /**
  * Writers Room - AI Character Improv API
@@ -6,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 export async function POST(req: NextRequest) {
   try {
-    const { characterName, characterDescription, conversationHistory, userMessage } = await req.json();
+    const { characterName, characterDescription, conversationHistory, userMessage, userId } = await req.json();
 
     console.log('Improv request:', {
       character: characterName,
@@ -39,6 +42,26 @@ This is an improv exercise to help discover authentic dialogue. Be bold, emotion
     const conversationPrompt = historyContext
       ? `Previous conversation:\n${historyContext}\n\nYOU: ${userMessage}\n\n${characterName}:`
       : `YOU: ${userMessage}\n\n${characterName}:`;
+
+    // Check and deduct credits if user is authenticated
+    if (userId) {
+      const creditCheck = await checkCredits(userId, CREDIT_COSTS.WRITERS_ROOM_IMPROV);
+      if (!creditCheck.success) {
+        // For beta, make text-only improv free
+        console.log('Credit check failed, using free tier for beta:', creditCheck.error);
+        // Continue with free tier limitations
+      } else {
+        // Deduct credits for premium features
+        const deductResult = await deductCredits(
+          userId, 
+          CREDIT_COSTS.WRITERS_ROOM_IMPROV,
+          'Writers Room - AI Improv Session'
+        );
+        if (!deductResult.success) {
+          console.log('Credit deduction failed, using free tier');
+        }
+      }
+    }
 
     // Call OpenAI or Anthropic API
     // For now, using OpenAI as it's more common

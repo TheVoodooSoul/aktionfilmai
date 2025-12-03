@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowLeft, Send, Plus, Play, FileText, Video, Square, Upload } from 'lucide-react';
+import { ArrowLeft, Send, Plus, Play, FileText, Video, Square, Upload, Sparkles, Volume2, Wand2 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { supabase } from '@/lib/supabase';
 
@@ -49,6 +49,17 @@ export default function ImprovPage() {
   const [sceneClips, setSceneClips] = useState<Array<{ role: 'user' | 'character'; videoUrl: string; text: string }>>([]);
   const [waitingForAI, setWaitingForAI] = useState(false);
 
+  // Character generation state
+  const [isGeneratingCharacter, setIsGeneratingCharacter] = useState(false);
+  const [generatedCharacterImage, setGeneratedCharacterImage] = useState<string | null>(null);
+  const [characterDescription, setCharacterDescription] = useState('');
+  const [showCharacterGenerator, setShowCharacterGenerator] = useState(false);
+
+  // Voice testing state
+  const [testingVoice, setTestingVoice] = useState<string | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState('male-deep');
+  const audioRef = useRef<HTMLAudioElement>(null);
+
   // Load characters on mount
   useEffect(() => {
     loadCharacters();
@@ -75,6 +86,7 @@ export default function ImprovPage() {
 
   const handleSelectCharacter = (character: Character) => {
     setSelectedCharacter(character);
+    setGeneratedCharacterImage(null); // Clear any generated image
     setMessages([
       {
         id: '0',
@@ -83,6 +95,71 @@ export default function ImprovPage() {
         timestamp: new Date(),
       },
     ]);
+  };
+
+  const handleGenerateCharacter = async () => {
+    if (!characterDescription.trim()) {
+      alert('Please enter a character description');
+      return;
+    }
+
+    setIsGeneratingCharacter(true);
+    try {
+      const response = await fetch('/api/writers-room/generate-character', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          characterName: selectedCharacter?.name || 'AI Character',
+          characterDescription: characterDescription,
+          userId: user?.id,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.imageUrl) {
+        setGeneratedCharacterImage(data.imageUrl);
+        alert('✅ Character image generated!');
+      } else {
+        alert('Failed to generate character image');
+      }
+    } catch (error) {
+      console.error('Generate character error:', error);
+      alert('Failed to generate character image');
+    } finally {
+      setIsGeneratingCharacter(false);
+      setShowCharacterGenerator(false);
+      setCharacterDescription('');
+    }
+  };
+
+  const handleTestVoice = async (text: string, messageId: string) => {
+    setTestingVoice(messageId);
+    try {
+      const response = await fetch('/api/writers-room/test-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: text,
+          voice: selectedVoice,
+          characterName: selectedCharacter?.name,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.audioUrl) {
+        // Play audio
+        const audio = new Audio(data.audioUrl);
+        audioRef.current = audio;
+        await audio.play();
+      } else {
+        alert(data.message || 'Voice testing not available');
+      }
+    } catch (error) {
+      console.error('Test voice error:', error);
+      alert('Failed to test voice');
+    } finally {
+      setTestingVoice(null);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -110,6 +187,7 @@ export default function ImprovPage() {
           characterDescription: selectedCharacter.description || `Action hero named ${selectedCharacter.name}`,
           conversationHistory: messages.slice(-10), // Last 10 messages for context
           userMessage: input.trim(),
+          userId: user?.id,
         }),
       });
 
@@ -348,6 +426,7 @@ export default function ImprovPage() {
             content: clip.text,
           })),
           userMessage: 'Continue the scene naturally',
+          userId: user?.id,
         }),
       });
 
@@ -535,10 +614,10 @@ export default function ImprovPage() {
             {/* Character Avatar Panel */}
             <div className="w-96 border-r border-zinc-800 bg-zinc-950 flex flex-col">
               <div className="aspect-[3/4] relative bg-black">
-                {selectedCharacter.image_url && (
+                {(generatedCharacterImage || selectedCharacter.image_url) && (
                   <>
                     <Image
-                      src={selectedCharacter.image_url}
+                      src={generatedCharacterImage || selectedCharacter.image_url || ''}
                       alt={selectedCharacter.name}
                       fill
                       className="object-cover"
@@ -547,6 +626,14 @@ export default function ImprovPage() {
                     <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60" />
                   </>
                 )}
+                {/* Generate Character Button */}
+                <button
+                  onClick={() => setShowCharacterGenerator(true)}
+                  className="absolute top-2 right-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                >
+                  <Wand2 size={14} />
+                  Generate Look
+                </button>
               </div>
               <div className="p-6 space-y-3">
                 <h2 className="text-xl font-bold">{selectedCharacter.name}</h2>
@@ -572,6 +659,73 @@ export default function ImprovPage() {
                 >
                   Change Character
                 </button>
+
+                {/* Character Generator Modal */}
+                {showCharacterGenerator && (
+                  <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                    <div className="bg-zinc-900 p-6 rounded-xl max-w-md w-full">
+                      <h3 className="text-lg font-bold mb-4">Generate Character Appearance</h3>
+                      <textarea
+                        value={characterDescription}
+                        onChange={(e) => setCharacterDescription(e.target.value)}
+                        placeholder="Describe the character's appearance: scarred face, military uniform, intense eyes..."
+                        className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        rows={3}
+                      />
+                      <div className="flex gap-2 mt-4">
+                        <button
+                          onClick={handleGenerateCharacter}
+                          disabled={isGeneratingCharacter}
+                          className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                          {isGeneratingCharacter ? (
+                            <>
+                              <Sparkles size={16} className="animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={16} />
+                              Generate (5 credits)
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowCharacterGenerator(false);
+                            setCharacterDescription('');
+                          }}
+                          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-medium transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Voice Testing Controls */}
+                <div className="pt-4 border-t border-zinc-800">
+                  <h3 className="text-sm font-bold mb-2 flex items-center gap-2">
+                    <Volume2 size={16} className="text-blue-500" />
+                    Voice Testing
+                  </h3>
+                  <select
+                    value={selectedVoice}
+                    onChange={(e) => setSelectedVoice(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="male-deep">Male - Deep</option>
+                    <option value="male-neutral">Male - Neutral</option>
+                    <option value="female-warm">Female - Warm</option>
+                    <option value="female-energetic">Female - Energetic</option>
+                    <option value="narrator">Narrator</option>
+                    <option value="mysterious">Mysterious</option>
+                  </select>
+                  <p className="text-xs text-zinc-500 mt-2">
+                    Click the speaker icon on any message to hear it spoken
+                  </p>
+                </div>
 
                 {/* Performance Recording Section */}
                 <div className="pt-4 border-t border-zinc-800">
@@ -677,27 +831,46 @@ export default function ImprovPage() {
                 {messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} group`}
                   >
-                    <div
-                      onClick={() => toggleSelectMessage(message.id)}
-                      className={`max-w-2xl px-4 py-3 rounded-lg cursor-pointer transition-all ${
-                        message.role === 'user'
-                          ? message.selected
+                    <div className="relative">
+                      <div
+                        onClick={() => toggleSelectMessage(message.id)}
+                        className={`max-w-2xl px-4 py-3 rounded-lg cursor-pointer transition-all ${
+                          message.role === 'user'
+                            ? message.selected
+                              ? 'bg-red-600 text-white'
+                              : 'bg-zinc-800 text-white hover:bg-zinc-700'
+                            : message.selected
                             ? 'bg-red-600 text-white'
-                            : 'bg-zinc-800 text-white hover:bg-zinc-700'
-                          : message.selected
-                          ? 'bg-red-600 text-white'
-                          : 'bg-zinc-900 text-white hover:bg-zinc-800'
-                      }`}
-                    >
-                      <div className="text-xs text-zinc-400 mb-1">
-                        {message.role === 'user' ? 'YOU' : selectedCharacter.name.toUpperCase()}
+                            : 'bg-zinc-900 text-white hover:bg-zinc-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="text-xs text-zinc-400">
+                            {message.role === 'user' ? 'YOU' : selectedCharacter.name.toUpperCase()}
+                          </div>
+                          {/* Voice Test Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTestVoice(message.content, message.id);
+                            }}
+                            disabled={testingVoice === message.id}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+                          >
+                            {testingVoice === message.id ? (
+                              <Volume2 size={14} className="text-blue-400 animate-pulse" />
+                            ) : (
+                              <Volume2 size={14} className="text-zinc-400 hover:text-blue-400" />
+                            )}
+                          </button>
+                        </div>
+                        <div className="text-sm leading-relaxed">{message.content}</div>
+                        {message.selected && (
+                          <div className="text-xs text-white/70 mt-2">✓ Selected for export</div>
+                        )}
                       </div>
-                      <div className="text-sm leading-relaxed">{message.content}</div>
-                      {message.selected && (
-                        <div className="text-xs text-white/70 mt-2">✓ Selected for export</div>
-                      )}
                     </div>
                   </div>
                 ))}

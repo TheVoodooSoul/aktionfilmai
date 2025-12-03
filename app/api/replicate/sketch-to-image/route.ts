@@ -13,6 +13,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate and log image data
+    if (!image) {
+      return NextResponse.json(
+        { error: 'No image provided' },
+        { status: 400 }
+      );
+    }
+
+    // Log image info for debugging
+    const isDataUri = image.startsWith('data:');
+    const imagePrefix = image.substring(0, 50);
+    console.log('Image input info:', {
+      isDataUri,
+      prefix: imagePrefix,
+      length: image.length,
+    });
+
+    // Ensure the data URI has the correct format
+    let processedImage = image;
+    if (isDataUri) {
+      // Extract mime type and validate
+      const mimeMatch = image.match(/^data:([^;]+);base64,/);
+      if (!mimeMatch) {
+        return NextResponse.json(
+          { error: 'Invalid image data URI format' },
+          { status: 400 }
+        );
+      }
+      console.log('Image mime type:', mimeMatch[1]);
+    }
+
     // Initialize Replicate client
     const replicate = new Replicate({
       auth: process.env.REPLICATE_API_TOKEN,
@@ -38,30 +69,64 @@ export async function POST(req: NextRequest) {
       creativity,
     });
 
-    // Use jagilley/controlnet-scribble - SDXL-based ControlNet optimized for sketches
-    // ✅ NO violence filtering (unlike Flux)
-    // ✅ Great for fight scenes and action sequences
+    // Use stability-ai/sdxl for image generation with img2img
+    // More reliable than controlnet models
+    console.log('Calling Replicate SDXL with image length:', processedImage.length);
+
     const output = await replicate.run(
-      "jagilley/controlnet-scribble:435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117",
+      "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
       {
         input: {
-          image: image, // Base64 data URI or URL
+          image: processedImage,
           prompt: enhancedPrompt,
-          negative_prompt: "blurry, low quality, distorted, deformed, cartoon, anime, text, watermark, signature, amateur",
           num_outputs: 1,
-          num_inference_steps: 50,
-          guidance_scale: creativity ? creativity * 12 : 7.5, // Higher scale for more dramatic results
-          scheduler: "K_EULER_ANCESTRAL",
-          // CRITICAL: No safety filters - allows violence/action content
-          disable_safety_checker: true,
+          num_inference_steps: 30,
+          guidance_scale: 7.5,
+          prompt_strength: creativity ? creativity : 0.8, // How much to transform the image
+          negative_prompt: "blurry, low quality, distorted, deformed, cartoon, anime, text, watermark, signature, amateur, lowres, bad anatomy, bad hands",
         },
       }
     );
 
-    console.log('Replicate ControlNet output:', output);
+    console.log('Replicate ControlNet raw output type:', typeof output);
+    console.log('Replicate ControlNet output:', JSON.stringify(output, null, 2));
 
-    // Replicate returns an array of URLs
-    const imageUrl = Array.isArray(output) ? output[0] : output;
+    // Handle different output types from Replicate
+    let imageUrl: string | null = null;
+
+    if (typeof output === 'string') {
+      // Direct string URL
+      imageUrl = output;
+    } else if (Array.isArray(output)) {
+      // Array of URLs or FileOutput objects
+      const firstItem = output[0];
+      if (typeof firstItem === 'string') {
+        imageUrl = firstItem;
+      } else if (firstItem && typeof firstItem === 'object') {
+        // FileOutput object - convert to string
+        imageUrl = firstItem.url?.() || firstItem.toString() || String(firstItem);
+      }
+    } else if (typeof output === 'object' && output !== null) {
+      // Single object response
+      const obj = output as any;
+      if (typeof obj.url === 'function') {
+        imageUrl = obj.url();
+      } else if (typeof obj.url === 'string') {
+        imageUrl = obj.url;
+      } else if (typeof obj.output === 'string') {
+        imageUrl = obj.output;
+      } else if (Array.isArray(obj.output)) {
+        const firstOutput = obj.output[0];
+        imageUrl = typeof firstOutput === 'string' ? firstOutput : String(firstOutput);
+      } else {
+        // Try toString as last resort
+        imageUrl = String(output);
+      }
+    }
+
+    // Ensure imageUrl is a string for logging
+    const urlPreview = typeof imageUrl === 'string' ? imageUrl.substring(0, 100) : String(imageUrl);
+    console.log('Processed imageUrl:', urlPreview + '...');
 
     if (!imageUrl) {
       return NextResponse.json(
