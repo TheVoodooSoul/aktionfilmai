@@ -13,6 +13,8 @@ export interface CanvasNode {
   audioUrl?: string; // Audio for lipsync
   prompt?: string;
   dialogue?: string; // For lipsync node
+  targetVideoUrl?: string; // For face-swap: video to swap face onto
+  faceImageUrl?: string; // For face-swap: face image from library
   coherentImages?: string[]; // For coherent-scene: array of 6 image URLs/base64
   settings?: {
     creativity?: number; // 0-1

@@ -415,8 +415,11 @@ export default function CanvasPage() {
           // Face Swap - A2E
           console.log('FACE SWAP - Using A2E face swap');
           endpoint = '/api/a2e/face-swap';
-          body.source_image = node.imageData; // Face to swap in
-          body.target_image = node.targetImage; // Image/video to swap onto
+          // faceUrl: the face image to swap in (from imageData or faceImageUrl)
+          // videoUrl: the target video to swap face onto
+          body.faceUrl = node.faceImageUrl || node.imageData;
+          body.videoUrl = node.targetVideoUrl || node.videoUrl;
+          body.name = `Face Swap - ${new Date().toISOString()}`;
           break;
           
         case 'talking-photo':

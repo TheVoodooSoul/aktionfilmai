@@ -361,6 +361,43 @@ export default function NodeCard({ node, onUpdate, onDelete, onGenerate, onEdit,
               onClick={(e) => e.stopPropagation()}
             />
           </div>
+        ) : node.type === 'face-swap' ? (
+          <div className="space-y-1.5">
+            <div className="text-[10px] text-zinc-500 font-medium">Face Image (from library)</div>
+            <input
+              type="text"
+              value={node.faceImageUrl || ''}
+              onChange={(e) => onUpdate(node.id, { faceImageUrl: e.target.value })}
+              placeholder="Face image URL..."
+              className="w-full px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <div className="text-[10px] text-zinc-500 font-medium">Target Video URL</div>
+            <input
+              type="text"
+              value={node.targetVideoUrl || ''}
+              onChange={(e) => onUpdate(node.id, { targetVideoUrl: e.target.value })}
+              placeholder="Video URL to swap face onto..."
+              className="w-full px-2 py-1 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <p className="text-[9px] text-zinc-600">Use faces from Character Studio library</p>
+          </div>
+        ) : node.type === 'nanobanana' ? (
+          <div className="space-y-1.5">
+            <textarea
+              value={localPrompt}
+              onChange={(e) => {
+                setLocalPrompt(e.target.value);
+                onUpdate(node.id, { prompt: e.target.value });
+              }}
+              placeholder="Multi-character scene description..."
+              className="w-full px-2 py-1.5 bg-black border border-zinc-800 rounded text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-none"
+              rows={2}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <p className="text-[9px] text-zinc-600">Uses your character refs + sketch</p>
+          </div>
         ) : (
           <div className="space-y-1.5">
             {/* Character Upload Option */}
