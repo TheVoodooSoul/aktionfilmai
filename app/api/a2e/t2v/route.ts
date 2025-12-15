@@ -23,6 +23,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check and deduct credits BEFORE making expensive API calls
+    const creditCost = 75; // OpenAI TTS + A2E avatar video (costs ~$1-2 in API fees)
+    const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
+
+    if (userId && !isSuperAdmin) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('credits')
+        .eq('id', userId)
+        .single();
+
+      if (!profile || profile.credits < creditCost) {
+        return NextResponse.json(
+          { error: `Insufficient credits. Need ${creditCost} credits for Text-to-Video.` },
+          { status: 402 }
+        );
+      }
+
+      // Deduct credits upfront
+      await supabase
+        .from('profiles')
+        .update({ credits: profile.credits - creditCost })
+        .eq('id', userId);
+
+      await supabase
+        .from('credit_transactions')
+        .insert({
+          user_id: userId,
+          amount: -creditCost,
+          transaction_type: 'generation',
+          description: 'Text to Video (Avatar Talking)',
+        });
+    }
+
     // Step 1: Generate voice with OpenAI TTS
     console.log('Generating voice with OpenAI TTS...');
     const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -152,41 +186,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (!resultUrl) {
+      // Refund credits on timeout
+      if (userId && !isSuperAdmin) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('credits')
+          .eq('id', userId)
+          .single();
+        if (profile) {
+          await supabase
+            .from('profiles')
+            .update({ credits: profile.credits + creditCost })
+            .eq('id', userId);
+        }
+      }
       return NextResponse.json(
-        { error: 'Video generation timed out after 10 minutes. Please try again.' },
+        { error: 'Video generation timed out after 10 minutes. Credits refunded.' },
         { status: 408 }
       );
-    }
-
-    // Deduct credits (cost varies by avatar, estimate ~50 credits for TTS + avatar video)
-    if (userId) {
-      const creditCost = 50; // OpenAI TTS (~1 credit) + A2E avatar video (~45-50 credits)
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('credits')
-        .eq('id', userId)
-        .single();
-
-      if (profile && profile.credits >= creditCost) {
-        await supabase
-          .from('profiles')
-          .update({ credits: profile.credits - creditCost })
-          .eq('id', userId);
-
-        await supabase
-          .from('credit_transactions')
-          .insert({
-            user_id: userId,
-            amount: -creditCost,
-            transaction_type: 'generation',
-            description: 'Text to Video (Avatar Talking)',
-          });
-      } else {
-        return NextResponse.json(
-          { error: 'Insufficient credits' },
-          { status: 402 }
-        );
-      }
     }
 
     return NextResponse.json({

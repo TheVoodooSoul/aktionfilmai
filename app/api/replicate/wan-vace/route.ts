@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
       sample_steps: 50,
       sample_solver: "unipc",
       sample_guide_scale: 5,
+      disable_safety_checker: true,
     };
 
     // Add optional inputs

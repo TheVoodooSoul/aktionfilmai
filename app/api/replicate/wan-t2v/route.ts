@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
       prompt,
       num_frames: numFrames,
       guidance_scale: 7.5,
+      disable_safety_checker: true,
     };
 
     if (negativePrompt) {

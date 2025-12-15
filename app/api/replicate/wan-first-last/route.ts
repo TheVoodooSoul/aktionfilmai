@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
       num_frames: numFrames,
       guidance_scale: guidanceScale,
       num_inference_steps: steps,
+      disable_safety_checker: true,
     };
 
     if (negativePrompt) {

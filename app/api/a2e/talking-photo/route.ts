@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
 
     if (userId && !isSuperAdmin) {
-      const creditCost = 5;
+      const creditCost = 10; // Talking photo API costs ~$0.20-0.50
       const { data: profile } = await supabase
         .from('profiles')
         .select('credits')

@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
       prompt: prompt || 'smooth animation, natural movement, high quality',
       num_frames: numFrames,
       guidance_scale: guidanceScale,
+      disable_safety_checker: true,
     };
 
     if (negativePrompt) {

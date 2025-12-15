@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       if (userId) {
         const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
         if (!isSuperAdmin) {
-          const creditCost = uploadedVideo ? 10 : 30; // Video = 10, Image = 30
+          const creditCost = uploadedVideo ? 75 : 150; // Video = 75, Image = 150 (A2E costs $2-5)
           const { data: profile } = await supabase
             .from('profiles')
             .select('credits')

@@ -122,8 +122,8 @@ export async function POST(req: NextRequest) {
 
     const supabase = createRouteHandlerClient({ cookies });
 
-    // Determine cost: video = 10 credits, image = 30 credits
-    const cost = videoSource ? 10 : 30;
+    // Determine cost: video = 75 credits, image = 150 credits (A2E costs ~$2-5)
+    const cost = videoSource ? 75 : 150;
 
     // Skip credit check for superadmin
     const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
@@ -264,7 +264,7 @@ export async function POST(req: NextRequest) {
       avatar_id: avatarId,
       status: 'training',
       cost,
-      message: videoSource ? 'Avatar training started (10 credits)' : 'Avatar training started (30 credits)',
+      message: videoSource ? 'Avatar training started (75 credits)' : 'Avatar training started (150 credits)',
     });
   } catch (error) {
     console.error('Train avatar error:', error);

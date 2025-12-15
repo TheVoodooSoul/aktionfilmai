@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
     const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
 
     if (userId && !isSuperAdmin) {
-      const creditCost = 10;
+      const creditCost = 15; // Face swap API costs ~$0.50-1
       const { data: profile } = await supabase
         .from('profiles')
         .select('credits')

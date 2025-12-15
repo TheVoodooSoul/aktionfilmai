@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       prompt: prompt || 'cinematic motion, high quality video',
       num_frames: numFrames,
       guidance_scale: guidanceScale,
+      disable_safety_checker: true,
     };
 
     if (image) {

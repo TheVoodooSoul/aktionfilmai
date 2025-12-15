@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
 
     // Deduct credits for image avatar (video is free)
     if (imageUrl && user.id !== '00000000-0000-0000-0000-000000000001') {
-      const creditCost = 30;
+      const creditCost = 150; // Image avatar training (A2E costs $2-5)
       const { data: profile } = await supabase
         .from('profiles')
         .select('credits')

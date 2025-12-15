@@ -14,18 +14,18 @@ export const CREDIT_COSTS = {
   WRITERS_ROOM_PERFORMANCE: 10,  // Run Lines with avatar
   WRITERS_ROOM_CHARACTER_GENERATION: 5,
   
-  // Avatar Training
-  AVATAR_VIDEO_TRAINING: 10,  // Video avatars 
-  AVATAR_IMAGE_TRAINING: 30,  // Image avatars
-  AVATAR_CONTINUE_TRAINING: 20, // Studio avatar upgrade
+  // Avatar Training (A2E costs ~$2-5 per avatar, price for profit)
+  AVATAR_VIDEO_TRAINING: 75,   // Video avatars (~$3 revenue at worst tier)
+  AVATAR_IMAGE_TRAINING: 150,  // Image avatars (~$6 revenue at worst tier)
+  AVATAR_CONTINUE_TRAINING: 50, // Studio avatar upgrade
   
   // Voice
   VOICE_CLONE: 10, // Voice cloning
   
-  // A2E Features
-  TALKING_VIDEO: 5,
-  TALKING_PHOTO: 5,
-  FACE_SWAP: 5,
+  // A2E Features (API costs ~$0.50-2 each)
+  TALKING_VIDEO: 75,   // TTS + A2E avatar video
+  TALKING_PHOTO: 10,   // Static talking photo
+  FACE_SWAP: 15,       // Face swap processing
   FACE_LIBRARY_ADD: 3,
   DUBBING: 3,
   LIPSYNC: 3,
