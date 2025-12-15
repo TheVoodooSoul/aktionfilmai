@@ -16,6 +16,7 @@
     "@supabase/auth-helpers-shared": "^0.7.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.81.1",
+    "@vercel/analytics": "^1.6.1",
     "ai": "^5.0.104",
     "dotenv": "^17.2.3",
     "konva": "^10.0.9",
