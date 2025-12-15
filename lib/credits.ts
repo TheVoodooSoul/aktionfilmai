@@ -7,10 +7,11 @@ import { cookies } from 'next/headers';
 export const CREDIT_COSTS = {
   // Writers Room
   WRITERS_ROOM_AI_SUGGESTION: 1,
-  WRITERS_ROOM_IMPROV: 2,
-  WRITERS_ROOM_STORYBOARD: 5,
+  WRITERS_ROOM_IMPROV: 1,  // 1 credit per message exchange (~$0.04 revenue, ~$0.001 cost = 97% margin)
+  WRITERS_ROOM_STORYBOARD: 2,  // 2 credits per frame (Replicate SDXL Lightning)
+  WRITERS_ROOM_STORYBOARD_BATCH: 15,  // 15 credits for up to 10 frames
   WRITERS_ROOM_VIDEO_GENERATION: 10,
-  WRITERS_ROOM_PERFORMANCE: 5,
+  WRITERS_ROOM_PERFORMANCE: 10,  // Run Lines with avatar
   WRITERS_ROOM_CHARACTER_GENERATION: 5,
   
   // Avatar Training
@@ -197,9 +198,9 @@ export async function checkSubscriptionAccess(
     return { success: false, error: 'Subscription inactive' };
   }
   
-  const tierLevels = { 'free': 0, 'basic': 1, 'pro': 2 };
-  const userLevel = tierLevels[profile.subscription_tier];
-  const requiredLevel = tierLevels[requiredTier];
+  const tierLevels: Record<string, number> = { 'free': 0, 'basic': 1, 'pro': 2 };
+  const userLevel = tierLevels[profile.subscription_tier] ?? 0;
+  const requiredLevel = tierLevels[requiredTier] ?? 0;
   
   if (userLevel < requiredLevel) {
     return { 

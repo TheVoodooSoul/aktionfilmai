@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Film, Zap, Users, Trophy, ChevronRight, Clapperboard } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Film, Zap, Users, Trophy, ChevronRight, Clapperboard, Volume2, VolumeX } from 'lucide-react';
 import Footer from '@/components/Footer';
+import AgeGate from '@/components/AgeGate';
 
 const features = [
   {
@@ -42,6 +44,7 @@ const features = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
@@ -49,6 +52,27 @@ export default function HomePage() {
   const [showModal, setShowModal] = useState(false);
   const [showThanks, setShowThanks] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
+  const [showAgeGate, setShowAgeGate] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Handle Enter button click - show age gate if not verified
+  const handleEnterClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const isVerified = localStorage.getItem('aktionfilm_age_verified') === 'true';
+    if (isVerified) {
+      router.push('/login');
+    } else {
+      setShowAgeGate(true);
+    }
+  };
+
+  // Handle age verification complete
+  const handleAgeVerified = () => {
+    setShowAgeGate(false);
+    router.push('/login');
+  };
 
   // Rotate features every 4 seconds
   useEffect(() => {
@@ -57,6 +81,33 @@ export default function HomePage() {
     }, 4000);
     return () => clearInterval(interval);
   }, []);
+
+  // Handle audio playback
+  const toggleAudio = () => {
+    if (audioRef.current) {
+      if (isMuted) {
+        audioRef.current.play();
+        setIsPlaying(true);
+      } else {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      }
+      setIsMuted(!isMuted);
+    }
+  };
+
+  // Try to autoplay on first user interaction
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      if (audioRef.current && !isPlaying) {
+        audioRef.current.volume = 0.3;
+        audioRef.current.loop = true;
+      }
+      document.removeEventListener('click', handleFirstInteraction);
+    };
+    document.addEventListener('click', handleFirstInteraction);
+    return () => document.removeEventListener('click', handleFirstInteraction);
+  }, [isPlaying]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,15 +151,23 @@ export default function HomePage() {
 
   return (
     <div className="relative min-h-screen bg-black text-white overflow-hidden">
+      {/* Age Gate Modal */}
+      {showAgeGate && (
+        <AgeGate
+          onVerified={handleAgeVerified}
+          onCancel={() => setShowAgeGate(false)}
+        />
+      )}
+
       {/* Login Button - Fixed Top Right */}
       <div className="fixed top-6 right-6 z-50">
-        <Link
-          href="/login"
+        <button
+          onClick={handleEnterClick}
           className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 rounded-lg font-black text-sm tracking-wider transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-red-600/50 flex items-center gap-2"
         >
           ENTER
           <ChevronRight size={16} />
-        </Link>
+        </button>
       </div>
 
       {/* YouTube Background Video */}
@@ -231,19 +290,15 @@ export default function HomePage() {
         {/* Feature Grid (Bottom) */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-20 max-w-7xl">
           {features.map((feature, index) => {
-            const CardWrapper = (feature as any).link ? Link : 'div';
-            const cardProps = (feature as any).link ? { href: (feature as any).link } : {};
+            const featureLink = (feature as any).link;
+            const cardClassName = `relative p-6 bg-black/30 border rounded-lg backdrop-blur-sm transition-all group ${
+              (feature as any).comingSoon
+                ? 'border-red-600/50 hover:border-red-500 bg-gradient-to-br from-red-950/30 to-black/50'
+                : 'border-zinc-800 hover:border-red-600'
+            }`;
 
-            return (
-              <CardWrapper
-                key={index}
-                {...cardProps}
-                className={`relative p-6 bg-black/30 border rounded-lg backdrop-blur-sm transition-all group ${
-                  (feature as any).comingSoon
-                    ? 'border-red-600/50 hover:border-red-500 bg-gradient-to-br from-red-950/30 to-black/50'
-                    : 'border-zinc-800 hover:border-red-600'
-                }`}
-              >
+            const cardContent = (
+              <>
                 {/* Coming Soon Banner - Red diagonal */}
                 {(feature as any).comingSoon && (
                   <div className="absolute -top-1 -right-1 overflow-hidden w-24 h-24 pointer-events-none">
@@ -274,7 +329,17 @@ export default function HomePage() {
                     </p>
                   </div>
                 )}
-              </CardWrapper>
+              </>
+            );
+
+            return featureLink ? (
+              <Link key={index} href={featureLink} className={cardClassName}>
+                {cardContent}
+              </Link>
+            ) : (
+              <div key={index} className={cardClassName}>
+                {cardContent}
+              </div>
             );
           })}
         </div>

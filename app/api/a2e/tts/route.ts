@@ -39,25 +39,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Build request body
+    // Build request body - A2E uses 'msg' and 'speechRate' (required)
     const requestBody: any = {
-      text,
-      speed,
-      pitch,
-      volume,
+      msg: text,
+      speechRate: speed, // A2E uses speechRate, not speed
     };
 
     // Use custom clone if provided, otherwise use public voice
+    // A2E uses 'tts_id' for public voices and 'user_voice_id' for clones
     if (user_voice_id) {
       requestBody.user_voice_id = user_voice_id;
       requestBody.country = country;
       requestBody.region = region;
     } else if (voice_id) {
-      requestBody.voice_id = voice_id;
+      requestBody.tts_id = voice_id; // A2E uses tts_id, not voice_id
     } else {
       // Default voice if none specified
-      requestBody.voice_id = 'en-US-JennyNeural';
+      requestBody.tts_id = 'en-US-JennyNeural';
     }
+
+    console.log('A2E TTS request body:', JSON.stringify(requestBody, null, 2));
 
     // Call A2E TTS API
     const response = await fetch('https://video.a2e.ai/api/v1/video/send_tts', {
@@ -79,16 +80,18 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await response.json();
+    console.log('A2E TTS response:', JSON.stringify(data, null, 2));
 
     if (data.code !== 0) {
       return NextResponse.json(
-        { error: data.message || 'TTS generation failed' },
+        { error: data.message || data.msg || 'TTS generation failed' },
         { status: 500 }
       );
     }
 
-    const audioUrl = data.data?.audio_url;
-    const taskId = data.data?._id;
+    // A2E returns audio URL directly in data as a string, or as data.audio_url
+    const audioUrl = typeof data.data === 'string' ? data.data : data.data?.audio_url;
+    const taskId = typeof data.data === 'object' ? data.data?._id : null;
 
     if (!audioUrl) {
       return NextResponse.json(

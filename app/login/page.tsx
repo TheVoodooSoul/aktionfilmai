@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClientComponentClient();
@@ -144,7 +144,44 @@ export default function LoginPage() {
             ← Back to home
           </a>
         </div>
+
+        {/* Dev bypass for local testing */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mt-6 pt-6 border-t border-zinc-800">
+            <p className="text-xs text-zinc-600 text-center mb-3">DEV MODE</p>
+            <button
+              onClick={() => {
+                const superAdmin = {
+                  id: '00000000-0000-0000-0000-000000000001',
+                  email: 'adam@egopandacreative.com',
+                  username: 'ArnoldStallone82',
+                  pin: '4313',
+                  role: 'superadmin',
+                };
+                localStorage.setItem('aktionfilm_user', JSON.stringify(superAdmin));
+                localStorage.setItem('user', JSON.stringify(superAdmin));
+                const destination = redirectUrl || '/characters';
+                router.push(destination);
+              }}
+              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg"
+            >
+              🔓 Dev Login (Super Admin)
+            </button>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }

@@ -2,17 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
 /**
- * Text-to-Video (A2E)
- * Generate video directly from text prompt
- * Supports @name tags for character references
+ * Text-to-Video (ModelsLab Wan 2.2)
+ * Direct text-to-video generation using ModelsLab API
  */
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, negativePrompt, userId } = await req.json();
+    const { prompt, negativePrompt, userId, portrait, numFrames } = await req.json();
 
-    console.log('A2E Text2Video Request:', {
+    console.log('Text2Video Request:', {
       prompt: prompt?.substring(0, 100),
       userId,
+      portrait,
+      numFrames,
     });
 
     if (!prompt) {
@@ -22,84 +23,76 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Call A2E Text-to-Video API
-    const response = await fetch('https://video.a2e.ai/api/v1/userText2Video/start', {
+    // Call ModelsLab Text-to-Video Ultra API
+    const modelsLabResponse = await fetch('https://modelslab.com/api/v6/video/text2video_ultra', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.A2E_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: 'Text to Video',
+        key: process.env.MODELSLAB_API_KEY,
         prompt: prompt,
-        negative_prompt: negativePrompt || 'blurry, low quality, distorted, deformed',
+        negative_prompt: negativePrompt || 'blurry, low quality, distorted, extra limbs, missing limbs, broken fingers, deformed, glitch, artifacts, unrealistic, low resolution, bad anatomy, duplicate, cropped, watermark, text, logo, jpeg artifacts, noisy, oversaturated, underexposed, overexposed, flicker, unstable motion, motion blur, stretched, mutated, out of frame, bad proportions',
+        portrait: portrait || false,
+        resolution: '480',
+        fps: '18',
+        num_frames: (numFrames || 92).toString(),
+        output_type: 'mp4',
+        model_id: 'wan-2.2-t2v',
       }),
     });
 
-    console.log('A2E Text2Video Response status:', response.status);
-    const responseText = await response.text();
-    console.log('A2E Text2Video Response:', responseText.substring(0, 500));
+    const modelsLabData = await modelsLabResponse.json();
+    console.log('Text2Video response:', JSON.stringify(modelsLabData, null, 2));
 
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: `A2E API error: ${response.status} - ${responseText.substring(0, 200)}` },
-        { status: response.status }
-      );
+    // Handle response
+    let output: any = null;
+
+    if (modelsLabData.status === 'success' && modelsLabData.output) {
+      output = modelsLabData.output;
+    } else if (modelsLabData.status === 'processing' && modelsLabData.fetch_result) {
+      // Poll for result - video generation can take a while
+      console.log('Text2Video processing, polling...');
+      let attempts = 0;
+      while (attempts < 180) { // 15 minutes max polling (5s intervals)
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        const pollResponse = await fetch(modelsLabData.fetch_result, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: process.env.MODELSLAB_API_KEY }),
+        });
+        const pollData = await pollResponse.json();
+        console.log('Poll attempt', attempts + 1, ':', pollData.status);
+        if (pollData.status === 'success' && pollData.output) {
+          output = pollData.output;
+          break;
+        } else if (pollData.status === 'failed') {
+          throw new Error('Text2Video generation failed: ' + (pollData.message || 'Unknown error'));
+        }
+        attempts++;
+      }
+      if (!output) throw new Error('Text2Video generation timed out');
+    } else if (modelsLabData.status === 'error') {
+      throw new Error('Text2Video error: ' + (modelsLabData.message || 'Unknown'));
     }
 
-    const data = JSON.parse(responseText);
+    console.log('Text2Video output:', JSON.stringify(output, null, 2));
 
-    if (data.code !== 0 || !data.data) {
+    // Extract video URL
+    let outputVideoUrl: string | null = null;
+    if (Array.isArray(output) && output.length > 0) {
+      outputVideoUrl = output[0];
+    } else if (typeof output === 'string') {
+      outputVideoUrl = output;
+    }
+
+    if (!outputVideoUrl || !outputVideoUrl.startsWith('http')) {
       return NextResponse.json(
-        { error: 'A2E API returned an error: ' + (data.message || 'Unknown error') },
+        { error: 'No video generated from Text2Video' },
         { status: 500 }
       );
     }
 
-    const taskId = data.data._id;
-    console.log('A2E Text2Video Task ID:', taskId);
-
-    // Poll for completion (max 15 minutes, check every 5 seconds)
-    let resultUrl = null;
-    let attempts = 0;
-    const maxAttempts = 180;
-
-    while (attempts < maxAttempts && !resultUrl) {
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      const statusResponse = await fetch(`https://video.a2e.ai/api/v1/userText2Video/${taskId}`, {
-        headers: {
-          'Authorization': `Bearer ${process.env.A2E_API_KEY}`,
-        },
-      });
-
-      const statusData = await statusResponse.json();
-      console.log(`Text2Video polling attempt ${attempts + 1}:`, statusData.data?.current_status);
-
-      if (statusData.code === 0 && statusData.data?.current_status === 'completed' && statusData.data?.result_url) {
-        resultUrl = statusData.data.result_url;
-        break;
-      }
-
-      if (statusData.data?.current_status === 'failed') {
-        return NextResponse.json(
-          { error: 'Text-to-Video generation failed: ' + (statusData.data?.failed_message || 'Unknown error') },
-          { status: 500 }
-        );
-      }
-
-      attempts++;
-    }
-
-    if (!resultUrl) {
-      return NextResponse.json(
-        { error: 'Video generation timed out after 15 minutes. Please try again.' },
-        { status: 408 }
-      );
-    }
-
     // Deduct credits
-    const creditCost = 80;
+    const creditCost = 10; // ModelsLab text2video cost
     const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
 
     if (userId && !isSuperAdmin) {
@@ -121,7 +114,7 @@ export async function POST(req: NextRequest) {
             user_id: userId,
             amount: -creditCost,
             transaction_type: 'generation',
-            description: 'Text to Video (A2E)',
+            description: 'Text to Video (ModelsLab Wan 2.2)',
           });
       } else {
         return NextResponse.json(
@@ -132,13 +125,14 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      output_url: resultUrl,
+      output_url: outputVideoUrl,
       status: 'success',
+      model: 'wan-2.2-t2v',
     });
-  } catch (error) {
-    console.error('A2E Text2Video error:', error);
+  } catch (error: any) {
+    console.error('Text2Video error:', error);
     return NextResponse.json(
-      { error: 'Failed to generate video' },
+      { error: error.message || 'Failed to generate video' },
       { status: 500 }
     );
   }

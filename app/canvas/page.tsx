@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import { supabase } from '@/lib/supabase';
 import DrawingCanvas from '@/components/DrawingCanvas';
@@ -11,24 +11,50 @@ import AddNodeMenu from '@/components/AddNodeMenu';
 import NodeConnections from '@/components/NodeConnections';
 import EpicScenePanel from '@/components/EpicScenePanel';
 import { CanvasNode as NodeType } from '@/lib/types';
-import { Sparkles, User, Layers, Home, Settings, Link2, Plus } from 'lucide-react';
+import { Sparkles, User, Layers, Home, Settings, Link2, Plus, Upload, Wand2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import Link from 'next/link';
+import { resolveMentions, AvatarReference } from '@/lib/avatar-mentions';
 
 export default function CanvasPage() {
   const { canvas, setCanvas, addNode, updateNode, deleteNode, credits, setCredits, user, setUser } = useStore();
   const [showDrawingModal, setShowDrawingModal] = useState(false);
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [characterRefs, setCharacterRefs] = useState<any[]>([]);
+  const [faces, setFaces] = useState<Array<{ _id: string; face_url: string }>>([]);
+  const [trainedAvatars, setTrainedAvatars] = useState<AvatarReference[]>([]);
   const [environment, setEnvironment] = useState<string>('none');
   const [isLoading, setIsLoading] = useState(false);
   const [showCharacterGen, setShowCharacterGen] = useState<number | null>(null);
   const [characterPrompt, setCharacterPrompt] = useState('');
   const [linkingMode, setLinkingMode] = useState(false);
   const [linkSourceNode, setLinkSourceNode] = useState<string | null>(null);
+  // Reference linking state (purple ports)
+  const [refLinkingMode, setRefLinkingMode] = useState(false);
+  const [refLinkSourceNode, setRefLinkSourceNode] = useState<string | null>(null);
+  // Audio linking state (green ports)
+  const [audioLinkingMode, setAudioLinkingMode] = useState(false);
+  const [audioLinkSourceNode, setAudioLinkSourceNode] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [modalSize, setModalSize] = useState({ width: 1200, height: 700 });
   const [isResizing, setIsResizing] = useState(false);
+  const [upscalingNodeId, setUpscalingNodeId] = useState<string | null>(null);
+  const [klingGeneratingNodeId, setKlingGeneratingNodeId] = useState<string | null>(null);
+  const [magicPromptLoadingNodeId, setMagicPromptLoadingNodeId] = useState<string | null>(null);
+  const [loadImageTargetNodeId, setLoadImageTargetNodeId] = useState<string | null>(null);
+  const imageUploadRef = useRef<HTMLInputElement>(null);
+  const nodeImageUploadRef = useRef<HTMLInputElement>(null);
+
+  // Wire dragging state for visual feedback
+  const [draggingWire, setDraggingWire] = useState<{
+    type: 'ref' | 'seq' | 'audio';
+    sourceNodeId: string;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   // Set mounted state for hydration safety
   useEffect(() => {
@@ -62,7 +88,7 @@ export default function CanvasPage() {
   // Load character references
   useEffect(() => {
     if (!isMounted) return;
-    
+
     const loadCharacterRefs = async () => {
       if (!user) return;
       const { data } = await supabase
@@ -74,6 +100,50 @@ export default function CanvasPage() {
     };
     loadCharacterRefs();
   }, [user, isMounted]);
+
+  // Load faces from A2E Face Library
+  useEffect(() => {
+    if (!isMounted || !user) return;
+
+    const loadFaces = async () => {
+      try {
+        const response = await fetch('/api/a2e/faces/list');
+        const data = await response.json();
+        if (data.faces) {
+          setFaces(data.faces);
+        }
+      } catch (error) {
+        console.error('Failed to load faces:', error);
+      }
+    };
+    loadFaces();
+  }, [user, isMounted]);
+
+  // Load trained avatars for @mention resolution
+  useEffect(() => {
+    if (!isMounted) return;
+
+    const loadAvatars = async () => {
+      try {
+        const response = await fetch('/api/a2e/list-avatars');
+        const data = await response.json();
+        if (data.trained) {
+          // Map trained avatars to AvatarReference format
+          const avatarRefs: AvatarReference[] = data.trained.map((t: any) => ({
+            id: t._id,
+            name: t.name,
+            type: 'custom',
+            image_url: t.image_url,
+          }));
+          setTrainedAvatars(avatarRefs);
+          console.log('Loaded trained avatars for @mentions:', avatarRefs.length);
+        }
+      } catch (error) {
+        console.error('Failed to load avatars:', error);
+      }
+    };
+    loadAvatars();
+  }, [isMounted]);
 
   // Create new node based on type
   const createNewNode = (type: 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 'v2v' | 't2v' | 'text2video' | 'lipsync' | 'talking-photo' | 'face-swap' | 'action-pose' | 'coherent-scene' | 'wan-i2v' | 'wan-vace' | 'wan-first-last' | 'wan-animate' | 'wan-fast' | 'wan-t2v' | 'nanobanana') => {
@@ -102,14 +172,23 @@ export default function CanvasPage() {
     }
   };
 
+  // ControlNet mode type for sketch/action-pose nodes
+  type ControlNetMode = 'img2img' | 'scribble' | 'canny' | 'openpose';
+
   // Save sketch from drawing canvas
-  const handleSaveSketch = async (imageData: string, prompt?: string, autoGenerate: boolean = false) => {
+  const handleSaveSketch = async (imageData: string, prompt?: string, autoGenerate: boolean = false, controlnetMode?: ControlNetMode) => {
     if (currentNodeId) {
-      // First update the node with the image data
+      // Get current node to preserve existing settings
+      const currentNode = canvas.nodes.find(n => n.id === currentNodeId);
+
+      // First update the node with the image data and controlnet mode
       updateNode(currentNodeId, {
         imageData,
         ...(prompt && { prompt }), // Save prompt if provided
-        isGenerating: autoGenerate // Mark as generating if auto-generate
+        settings: {
+          ...currentNode?.settings,
+          ...(controlnetMode && { controlnetMode }), // Save controlnet mode
+        },
       });
       
       // Close the modal
@@ -126,6 +205,27 @@ export default function CanvasPage() {
           handleGenerateWithImageData(nodeIdToGenerate, imageData, prompt);
         }, 100);
       }
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/87d64ab3-42cf-46a6-ad0d-43caa4bcb44c', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'B',
+          location: 'app/canvas/page.tsx:handleSaveSketch',
+          message: 'Saved sketch from canvas',
+          data: {
+            nodeId: nodeIdToGenerate,
+            hasImageData: !!imageData,
+            promptLength: (prompt || '').length,
+            autoGenerate
+          },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+      // #endregion
     }
   };
 
@@ -335,31 +435,56 @@ export default function CanvasPage() {
           break;
 
         case 'action-pose':
+          // Check controlnet mode - default to openpose for action poses
+          const actionControlnetMode = node.settings?.controlnetMode || 'openpose';
+          console.log('ACTION-POSE - Using mode:', actionControlnetMode);
+
           // Check if action pose has been drawn
           if (!node.imageData) {
             alert('Please draw your action pose first before generating!');
             setIsLoading(false);
             return;
           }
-          endpoint = '/api/fal/action-lora';
-          body.image = node.imageData;
-          body.actionType = node.settings?.actionType || 'punch';
+
+          // Use appropriate endpoint based on mode
+          if (actionControlnetMode === 'img2img') {
+            endpoint = '/api/fal/action-lora';
+            body.image = node.imageData;
+            body.actionType = node.settings?.actionType || 'punch';
+          } else {
+            // Use ControlNet API for scribble, canny, openpose
+            endpoint = '/api/modelslab/controlnet';
+            body.image = node.imageData;
+            body.mode = actionControlnetMode;
+            body.creativity = node.settings?.creativity || 0.7;
+          }
           break;
 
         case 'sketch':
-          // Sketch always uses Replicate ControlNet Scribble (NO SAFETY FILTERS)
-          console.log('SKETCH - Using Replicate ControlNet Scribble');
-          
+          // Check controlnet mode - default to img2img
+          const sketchControlnetMode = node.settings?.controlnetMode || 'img2img';
+          console.log('SKETCH - Using mode:', sketchControlnetMode);
+
           // Check if sketch has been drawn
           if (!node.imageData) {
             alert('Please draw your sketch first before generating!');
             setIsLoading(false);
             return;
           }
-          
-          endpoint = '/api/replicate/sketch-to-image';
-          body.image = node.imageData; // Base64 sketch data
-          body.creativity = node.settings?.creativity || 0.7;
+
+          // Use appropriate endpoint based on mode
+          if (sketchControlnetMode === 'img2img') {
+            endpoint = '/api/replicate/sketch-to-image';
+            body.image = node.imageData;
+            body.creativity = node.settings?.creativity || 0.7;
+          } else {
+            // Use ControlNet API for scribble, canny, openpose
+            endpoint = '/api/modelslab/controlnet';
+            body.image = node.imageData;
+            body.mode = sketchControlnetMode;
+            body.creativity = node.settings?.creativity || 0.7;
+          }
+
           // Include character references if selected
           if (node.settings?.characterRefs && node.settings.characterRefs.length > 0) {
             const selectedCharRefs = characterRefs.filter(ref =>
@@ -400,14 +525,15 @@ export default function CanvasPage() {
           // Image to Video - A2E
           console.log('I2V - Using A2E image to video');
           endpoint = '/api/a2e/i2v';
-          body.image = node.imageUrl || node.imageData;
+          body.imageUrl = node.imageUrl || node.imageData;
+          body.prompt = processedPrompt || 'cinematic action scene, dynamic movement, high quality';
           break;
 
         case 'lipsync':
-          // Lipsync - A2E
+          // Lipsync - A2E (uses talkingPhoto API)
           console.log('LIPSYNC - Using A2E lipsync');
           endpoint = '/api/a2e/lipsync';
-          body.image = node.imageUrl || node.imageData;
+          body.imageUrl = node.imageUrl || node.imageData;
           body.text = node.dialogue || prompt || 'Action hero speech';
           break;
           
@@ -426,8 +552,9 @@ export default function CanvasPage() {
           // Talking Photo - A2E
           console.log('TALKING PHOTO - Using A2E talking photo');
           endpoint = '/api/a2e/talking-photo';
-          body.image = node.imageUrl || node.imageData;
-          body.text = node.dialogue || node.prompt || 'Action hero speech';
+          body.imageUrl = node.imageUrl || node.imageData;
+          body.audioUrl = node.audioUrl; // Audio URL if available
+          body.prompt = node.dialogue || node.prompt || 'speaking person looking at camera';
           break;
 
         case 't2v':
@@ -435,11 +562,28 @@ export default function CanvasPage() {
           console.log('T2V - Using A2E talking portrait');
           endpoint = '/api/a2e/t2v';
           body.text = node.dialogue || node.prompt || 'Action hero speech';
-          // If character has avatar_id, use it; otherwise generate from prompt
-          if ((node as any).avatarId) {
-            body.avatar_id = (node as any).avatarId;
+
+          // Check for @mention in prompt/dialogue to resolve avatar
+          const t2vText = node.dialogue || node.prompt || '';
+          const { firstAvatar, unresolvedMentions } = resolveMentions(t2vText, trainedAvatars);
+
+          if (unresolvedMentions.length > 0) {
+            alert(`Unknown avatar: @${unresolvedMentions[0]}. Check your trained avatars.`);
+            setIsLoading(false);
+            return;
+          }
+
+          // Priority: @mention > node.avatarId > prompt-based generation
+          if (firstAvatar) {
+            body.avatarId = firstAvatar.id;
+            console.log(`Resolved @${firstAvatar.name} to avatar ID: ${firstAvatar.id}`);
+          } else if ((node as any).avatarId) {
+            body.avatarId = (node as any).avatarId;
           } else {
-            body.prompt = processedPrompt;
+            // T2V requires an avatar, show error if none found
+            alert('T2V requires a trained avatar. Use @mention or select a character with a trained avatar.');
+            setIsLoading(false);
+            return;
           }
           break;
 
@@ -555,6 +699,29 @@ export default function CanvasPage() {
           return;
       }
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/87d64ab3-42cf-46a6-ad0d-43caa4bcb44c', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'A',
+          location: 'app/canvas/page.tsx:handleGenerateInternal:preFetch',
+          message: 'Preparing generation request',
+          data: {
+            nodeType: node.type,
+            endpoint,
+            hasImageData: !!node.imageData,
+            hasImageUrl: !!(node as any).imageUrl,
+            hasVideoUrl: !!(node as any).videoUrl,
+            promptLength: (body.prompt || '').length
+          },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+      // #endregion
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -562,6 +729,32 @@ export default function CanvasPage() {
       });
 
       const data = await response.json();
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/87d64ab3-42cf-46a6-ad0d-43caa4bcb44c', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'C',
+          location: 'app/canvas/page.tsx:handleGenerateInternal:postFetch',
+          message: 'Generation response received',
+          data: {
+            nodeType: node.type,
+            endpoint,
+            hasOutputUrl: !!data.output_url,
+            hasError: !!data.error,
+            creditsBefore: credits,
+            requiredCredits
+          },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+      // #endregion
+
+      console.log('🎬 Generation response:', { output_url: data.output_url, error: data.error, nodeType: node.type });
+
       if (data.output_url) {
         // Determine if output is video based on node type
         const videoNodeTypes = ['i2v', 'v2v', 't2v', 'text2video', 'lipsync', 'wan-i2v', 'wan-t2v', 'wan-fast', 'wan-first-last', 'wan-animate', 'wan-vace'];
@@ -647,7 +840,7 @@ export default function CanvasPage() {
       return;
     }
 
-    const creditCost = 10;
+    const creditCost = 60; // Wan 2.2 First-Last Frame costs 60 credits
     if (credits < creditCost) {
       alert(`Insufficient credits! Sequence generation costs ${creditCost} credits.`);
       return;
@@ -655,12 +848,14 @@ export default function CanvasPage() {
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/runcomfy/sequence', {
+      // Use Wan 2.2 First-Last Frame for smooth interpolation
+      const response = await fetch('/api/replicate/wan-first-last', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           firstFrame: sourceNode.imageUrl,
           lastFrame: targetNode.imageUrl,
+          prompt: sourceNode.prompt || targetNode.prompt || 'smooth action transition, cinematic motion',
           userId: user?.id,
         }),
       });
@@ -688,6 +883,27 @@ export default function CanvasPage() {
       } else {
         alert('Failed to generate sequence');
       }
+
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/87d64ab3-42cf-46a6-ad0d-43caa4bcb44c', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'D',
+          location: 'app/canvas/page.tsx:handleGenerateSequence',
+          message: 'Sequence generation response',
+          data: {
+            sourceNodeId,
+            targetNodeId: sourceNode.connections?.next,
+            hasOutputUrl: !!data.output_url,
+            creditsBefore: credits
+          },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+      // #endregion
     } catch (error) {
       console.error('Sequence generation error:', error);
       alert('Failed to generate sequence');
@@ -696,51 +912,344 @@ export default function CanvasPage() {
     }
   };
 
-  // Epic Scene - Generate from 6 images
-  const handleEpicSceneGenerate = async (images: string[]) => {
+  // === PORT CLICK HANDLERS ===
+
+  // Reference Output Click (purple) - Node wants to BE a reference for another node
+  const handleRefOutputClick = (nodeId: string) => {
+    const node = canvas.nodes.find(n => n.id === nodeId);
+    if (!node?.imageUrl) {
+      alert('Node needs a generated image to be used as reference');
+      return;
+    }
+
+    if (!refLinkingMode) {
+      // Start linking - this node will provide reference
+      setRefLinkingMode(true);
+      setRefLinkSourceNode(nodeId);
+      // Cancel other linking modes
+      setLinkingMode(false);
+      setLinkSourceNode(null);
+      setAudioLinkingMode(false);
+      setAudioLinkSourceNode(null);
+    } else if (refLinkSourceNode === nodeId) {
+      // Cancel linking
+      setRefLinkingMode(false);
+      setRefLinkSourceNode(null);
+    }
+  };
+
+  // Reference Input Click (purple) - Node wants to RECEIVE a reference
+  const handleRefInputClick = (nodeId: string) => {
+    if (refLinkingMode && refLinkSourceNode && refLinkSourceNode !== nodeId) {
+      // Complete the connection - add source to target's references
+      const targetNode = canvas.nodes.find(n => n.id === nodeId);
+      if (targetNode) {
+        const currentRefs = targetNode.connections?.references || [];
+        // Avoid duplicates
+        if (!currentRefs.includes(refLinkSourceNode)) {
+          updateNode(nodeId, {
+            connections: {
+              ...targetNode.connections,
+              references: [...currentRefs, refLinkSourceNode]
+            }
+          });
+          console.log(`✅ Connected reference: ${refLinkSourceNode} → ${nodeId}`);
+        }
+      }
+      // Reset linking mode
+      setRefLinkingMode(false);
+      setRefLinkSourceNode(null);
+    } else if (!refLinkingMode) {
+      // Show what's connected to this input
+      const node = canvas.nodes.find(n => n.id === nodeId);
+      const refs = node?.connections?.references || [];
+      if (refs.length > 0) {
+        alert(`This node has ${refs.length} reference connection(s). Click a reference output (purple, right side) to add more.`);
+      } else {
+        alert('Click a reference output (purple port, right side of another node) first, then click this input to connect.');
+      }
+    }
+  };
+
+  // Sequence Output Click (blue) - Node's image goes to next frame
+  const handleSeqOutputClick = (nodeId: string) => {
+    const node = canvas.nodes.find(n => n.id === nodeId);
+    if (!node?.imageUrl) {
+      alert('Node needs a generated image to connect sequence');
+      return;
+    }
+
+    if (!linkingMode) {
+      // Start sequence linking
+      setLinkingMode(true);
+      setLinkSourceNode(nodeId);
+      // Cancel other modes
+      setRefLinkingMode(false);
+      setRefLinkSourceNode(null);
+      setAudioLinkingMode(false);
+      setAudioLinkSourceNode(null);
+    } else if (linkSourceNode === nodeId) {
+      // Cancel
+      setLinkingMode(false);
+      setLinkSourceNode(null);
+    }
+  };
+
+  // Sequence Input Click (blue) - This node receives from previous frame
+  const handleSeqInputClick = (nodeId: string) => {
+    if (linkingMode && linkSourceNode && linkSourceNode !== nodeId) {
+      // Complete the sequence connection
+      updateNode(linkSourceNode, {
+        connections: {
+          ...canvas.nodes.find(n => n.id === linkSourceNode)?.connections,
+          next: nodeId
+        }
+      });
+      console.log(`✅ Connected sequence: ${linkSourceNode} → ${nodeId}`);
+      setLinkingMode(false);
+      setLinkSourceNode(null);
+    } else if (!linkingMode) {
+      // Check what's connected
+      const hasPrev = canvas.nodes.some(n => n.connections?.next === nodeId);
+      if (hasPrev) {
+        alert('This node already has a previous frame connected.');
+      } else {
+        alert('Click a sequence output (blue port, right side) on another node first, then click this input.');
+      }
+    }
+  };
+
+  // Audio Output Click (green) - Node provides audio (TTS nodes)
+  const handleAudioOutputClick = (nodeId: string) => {
+    const node = canvas.nodes.find(n => n.id === nodeId);
+    if (!node?.audioUrl) {
+      alert('Node needs generated audio to connect');
+      return;
+    }
+
+    if (!audioLinkingMode) {
+      setAudioLinkingMode(true);
+      setAudioLinkSourceNode(nodeId);
+      // Cancel other modes
+      setRefLinkingMode(false);
+      setRefLinkSourceNode(null);
+      setLinkingMode(false);
+      setLinkSourceNode(null);
+    } else if (audioLinkSourceNode === nodeId) {
+      setAudioLinkingMode(false);
+      setAudioLinkSourceNode(null);
+    }
+  };
+
+  // Audio Input Click (green) - Lipsync node receives audio
+  const handleAudioInputClick = (nodeId: string) => {
+    if (audioLinkingMode && audioLinkSourceNode && audioLinkSourceNode !== nodeId) {
+      // Complete audio connection
+      updateNode(nodeId, {
+        connections: {
+          ...canvas.nodes.find(n => n.id === nodeId)?.connections,
+          audioSource: audioLinkSourceNode
+        }
+      });
+      console.log(`✅ Connected audio: ${audioLinkSourceNode} → ${nodeId}`);
+      setAudioLinkingMode(false);
+      setAudioLinkSourceNode(null);
+    } else if (!audioLinkingMode) {
+      const node = canvas.nodes.find(n => n.id === nodeId);
+      if (node?.connections?.audioSource) {
+        alert('Audio source already connected.');
+      } else {
+        alert('Click an audio output (green port) on a TTS node first, then click here.');
+      }
+    }
+  };
+
+  // === WIRE DRAGGING HANDLERS ===
+
+  // Start dragging a wire from an output port
+  const handlePortDragStart = (nodeId: string, portType: 'ref' | 'seq' | 'audio', isOutput: boolean, x: number, y: number) => {
+    if (!isOutput) return; // Only outputs can start a drag
+
+    // Set the appropriate linking mode
+    if (portType === 'ref') {
+      setRefLinkingMode(true);
+      setRefLinkSourceNode(nodeId);
+    } else if (portType === 'seq') {
+      setLinkingMode(true);
+      setLinkSourceNode(nodeId);
+    } else if (portType === 'audio') {
+      setAudioLinkingMode(true);
+      setAudioLinkSourceNode(nodeId);
+    }
+
+    // Start the visual wire
+    setDraggingWire({
+      type: portType,
+      sourceNodeId: nodeId,
+      startX: x,
+      startY: y,
+      currentX: x,
+      currentY: y,
+    });
+  };
+
+  // Handle mouse move while dragging wire
+  const handleCanvasMouseMove = (e: React.MouseEvent) => {
+    if (draggingWire) {
+      setDraggingWire({
+        ...draggingWire,
+        currentX: e.clientX,
+        currentY: e.clientY,
+      });
+    }
+  };
+
+  // Handle mouse up - check if dropped on a valid input port
+  const handleCanvasMouseUp = (e: React.MouseEvent) => {
+    if (!draggingWire) return;
+
+    // Check if we dropped on a valid input port
+    const target = e.target as HTMLElement;
+    const port = target.closest('[data-port]');
+
+    if (port) {
+      const portType = port.getAttribute('data-port');
+      const nodeCard = port.closest('[data-node-id]');
+      const targetNodeId = nodeCard?.getAttribute('data-node-id');
+
+      // Match the wire type to the input port type and complete connection
+      if (targetNodeId && targetNodeId !== draggingWire.sourceNodeId) {
+        if (draggingWire.type === 'ref' && portType === 'ref-input') {
+          // Complete reference connection
+          const targetNode = canvas.nodes.find(n => n.id === targetNodeId);
+          if (targetNode) {
+            const currentRefs = targetNode.connections?.references || [];
+            if (!currentRefs.includes(draggingWire.sourceNodeId)) {
+              updateNode(targetNodeId, {
+                connections: {
+                  ...targetNode.connections,
+                  references: [...currentRefs, draggingWire.sourceNodeId]
+                }
+              });
+              console.log(`✅ Connected reference: ${draggingWire.sourceNodeId} → ${targetNodeId}`);
+            }
+          }
+        } else if (draggingWire.type === 'seq' && portType === 'seq-input') {
+          // Complete sequence connection
+          updateNode(draggingWire.sourceNodeId, {
+            connections: {
+              ...canvas.nodes.find(n => n.id === draggingWire.sourceNodeId)?.connections,
+              next: targetNodeId
+            }
+          });
+          console.log(`✅ Connected sequence: ${draggingWire.sourceNodeId} → ${targetNodeId}`);
+        } else if (draggingWire.type === 'audio' && portType === 'audio-input') {
+          // Complete audio connection
+          updateNode(targetNodeId, {
+            connections: {
+              ...canvas.nodes.find(n => n.id === targetNodeId)?.connections,
+              audioSource: draggingWire.sourceNodeId
+            }
+          });
+          console.log(`✅ Connected audio: ${draggingWire.sourceNodeId} → ${targetNodeId}`);
+        }
+      }
+    }
+
+    // Reset all states
+    setDraggingWire(null);
+    setRefLinkingMode(false);
+    setRefLinkSourceNode(null);
+    setLinkingMode(false);
+    setLinkSourceNode(null);
+    setAudioLinkingMode(false);
+    setAudioLinkSourceNode(null);
+  };
+
+  // Cancel all linking modes on Escape key
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setDraggingWire(null);
+      setRefLinkingMode(false);
+      setRefLinkSourceNode(null);
+      setLinkingMode(false);
+      setLinkSourceNode(null);
+      setAudioLinkingMode(false);
+      setAudioLinkSourceNode(null);
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Epic Scene - Generate from images (standard or Kling)
+  const handleEpicSceneGenerate = async (images: string[], model?: 'standard' | 'kling', prompt?: string) => {
     if (!user) return;
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/runcomfy/coherent-scene', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          images,
-          userId: user.id,
-        }),
-      });
+      let response;
+      let creditCost = 10;
+
+      if (model === 'kling') {
+        // Use Kling multi-reference API
+        creditCost = 8;
+        response = await fetch('/api/modelslab/kling-multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            images,
+            prompt: prompt || 'Cinematic action scene with dramatic lighting',
+            duration: '10',
+            aspectRatio: '16:9',
+            userId: user.id,
+          }),
+        });
+      } else {
+        // Standard coherent scene
+        response = await fetch('/api/runcomfy/coherent-scene', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            images,
+            userId: user.id,
+          }),
+        });
+      }
 
       const data = await response.json();
 
       if (data.output_url) {
-        // Create a new image node with the epic scene
+        // Create a new node with the result
+        const isVideo = model === 'kling';
         const newNode: NodeType = {
           id: uuidv4(),
-          type: 'image',
+          type: isVideo ? 'video' : 'image',
           x: Math.random() * 400 + 200,
           y: Math.random() * 200 + 150,
           width: 320,
           height: 400,
-          prompt: 'Epic Scene (6 images)',
-          imageUrl: data.output_url,
-          coherentImages: images, // Store the 6 input images
+          prompt: model === 'kling' ? `Kling: ${prompt}` : 'Epic Scene (6 images)',
+          ...(isVideo ? { videoUrl: data.output_url } : { imageUrl: data.output_url }),
+          coherentImages: images,
           settings: {},
         };
         addNode(newNode);
 
-        setCredits(credits - 10);
+        setCredits(credits - creditCost);
 
         // Save to training data if user opted in
-        await saveOutputToDatabase(newNode.id, data.output_url, 'image');
+        await saveOutputToDatabase(newNode.id, data.output_url, isVideo ? 'video' : 'image');
 
-        alert('✅ Epic scene generated successfully!');
+        alert(`✅ ${model === 'kling' ? 'Kling video' : 'Epic scene'} generated successfully!`);
       } else {
-        alert('Failed to generate epic scene: ' + (data.error || 'Unknown error'));
+        alert('Failed to generate: ' + (data.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Epic scene generation error:', error);
-      alert('Failed to generate epic scene');
+      alert('Failed to generate');
     } finally {
       setIsLoading(false);
     }
@@ -803,6 +1312,200 @@ export default function CanvasPage() {
       alert('Failed to save character reference');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Upscale image
+  const handleUpscale = async (nodeId: string) => {
+    const node = canvas.nodes.find(n => n.id === nodeId);
+    if (!node || !node.imageUrl) {
+      alert('No image to upscale');
+      return;
+    }
+
+    setUpscalingNodeId(nodeId);
+    try {
+      const response = await fetch('/api/modelslab/upscale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: node.imageUrl,
+          prompt: node.prompt || '',
+          userId: user?.id,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Upscale failed');
+
+      // Update the node with the upscaled image
+      updateNode(nodeId, { imageUrl: data.output_url });
+      alert('Image upscaled successfully!');
+    } catch (error: any) {
+      console.error('Upscale error:', error);
+      alert('Failed to upscale: ' + error.message);
+    } finally {
+      setUpscalingNodeId(null);
+    }
+  };
+
+  // Nano correct - opens drawing modal for inpainting
+  const handleNanoCorrect = (nodeId: string) => {
+    const node = canvas.nodes.find(n => n.id === nodeId);
+    if (!node || !node.imageUrl) {
+      alert('No image to correct');
+      return;
+    }
+    // Set the current node and open drawing modal in mask mode
+    setCurrentNodeId(nodeId);
+    setShowDrawingModal(true);
+    // The DrawingCanvas component will need to detect this is for nano-correct
+  };
+
+  // Kling i2v - Premium single image to video
+  const handleKlingI2V = async (nodeId: string) => {
+    const node = canvas.nodes.find(n => n.id === nodeId);
+    if (!node || !node.imageUrl) {
+      alert('No image for Kling video');
+      return;
+    }
+
+    // Prompt for scene description
+    const scenePrompt = prompt('Describe the cinematic scene for Kling (5 credits):');
+    if (!scenePrompt) return;
+
+    setKlingGeneratingNodeId(nodeId);
+    try {
+      const response = await fetch('/api/modelslab/kling-i2v', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: node.imageUrl,
+          prompt: scenePrompt,
+          duration: '5',
+          aspectRatio: node.aspectRatio === '9:16' ? '9:16' : '16:9',
+          userId: user?.id,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Kling generation failed');
+
+      // Create a new video node
+      const newNode: NodeType = {
+        id: uuidv4(),
+        type: 'video',
+        x: node.x + 50,
+        y: node.y + 50,
+        width: node.width,
+        height: node.height,
+        aspectRatio: node.aspectRatio,
+        prompt: `Kling: ${scenePrompt}`,
+        videoUrl: data.output_url,
+        settings: {},
+      };
+      addNode(newNode);
+      alert('✅ Kling video generated!');
+    } catch (error: any) {
+      console.error('Kling i2v error:', error);
+      alert('Failed to generate Kling video: ' + error.message);
+    } finally {
+      setKlingGeneratingNodeId(null);
+    }
+  };
+
+  // Handle loading an image from file to create an image node
+  const handleLoadImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const imageData = reader.result as string;
+
+      // Create a new image node with the loaded image
+      const newNode: NodeType = {
+        id: uuidv4(),
+        type: 'image',
+        x: Math.random() * 400 + 200,
+        y: Math.random() * 200 + 150,
+        width: 400,
+        height: 300,
+        aspectRatio: '16:9',
+        imageUrl: imageData, // Use as imageUrl so it shows in preview
+        prompt: file.name.replace(/\.[^/.]+$/, ''), // Use filename as prompt
+        settings: {},
+      };
+      addNode(newNode);
+    };
+    reader.readAsDataURL(file);
+
+    // Reset input so same file can be selected again
+    if (imageUploadRef.current) {
+      imageUploadRef.current.value = '';
+    }
+  };
+
+  // Handle loading an image from a node's "Load Image" button
+  const handleNodeLoadImage = (nodeId: string) => {
+    setLoadImageTargetNodeId(nodeId);
+    nodeImageUploadRef.current?.click();
+  };
+
+  // Handle the file selection for node image upload
+  const handleNodeImageSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !loadImageTargetNodeId) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const imageData = reader.result as string;
+      updateNode(loadImageTargetNodeId, { imageUrl: imageData });
+      setLoadImageTargetNodeId(null);
+    };
+    reader.readAsDataURL(file);
+
+    // Reset input so same file can be selected again
+    if (nodeImageUploadRef.current) {
+      nodeImageUploadRef.current.value = '';
+    }
+  };
+
+  // Magic prompt - enhance prompt with AI
+  const handleMagicPrompt = async (nodeId: string, currentPrompt: string) => {
+    if (!currentPrompt.trim()) {
+      alert('Please enter a prompt first to enhance');
+      return;
+    }
+
+    setMagicPromptLoadingNodeId(nodeId);
+    try {
+      const node = canvas.nodes.find(n => n.id === nodeId);
+      const nodeType = node?.type || 'scene';
+
+      const response = await fetch('/api/magic-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: currentPrompt,
+          nodeType,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Magic prompt failed');
+
+      // Update the node with enhanced prompt (dialogue for lipsync, prompt for others)
+      if (node?.type === 'lipsync') {
+        updateNode(nodeId, { dialogue: data.enhancedPrompt });
+      } else {
+        updateNode(nodeId, { prompt: data.enhancedPrompt });
+      }
+    } catch (error: any) {
+      console.error('Magic prompt error:', error);
+      alert('Failed to enhance prompt: ' + error.message);
+    } finally {
+      setMagicPromptLoadingNodeId(null);
     }
   };
 
@@ -1021,26 +1724,52 @@ export default function CanvasPage() {
               )}
             </div>
 
-            <button
-              onClick={() => {
-                setLinkingMode(!linkingMode);
-                if (!linkingMode) {
-                  setLinkSourceNode(null);
-                  alert('Linking mode ON: Click first frame → Click second frame to create sequence connection');
-                } else {
-                  setLinkSourceNode(null);
-                  alert('Linking mode OFF');
-                }
-              }}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-                linkingMode
-                  ? 'bg-green-600 hover:bg-green-700'
-                  : 'bg-zinc-800 hover:bg-zinc-700'
-              }`}
-            >
-              <Link2 size={16} />
-              {linkingMode ? 'Linking...' : 'Link Frames'}
-            </button>
+            {/* Linking Status Indicator */}
+            {(refLinkingMode || linkingMode || audioLinkingMode) && (
+              <div className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 animate-pulse ${
+                refLinkingMode ? 'bg-purple-600' : linkingMode ? 'bg-blue-600' : 'bg-green-600'
+              }`}>
+                <Link2 size={14} />
+                {refLinkingMode ? 'Click purple input to connect reference' :
+                 linkingMode ? 'Click blue input to connect sequence' :
+                 'Click green input to connect audio'}
+                <button
+                  onClick={() => {
+                    setRefLinkingMode(false);
+                    setRefLinkSourceNode(null);
+                    setLinkingMode(false);
+                    setLinkSourceNode(null);
+                    setAudioLinkingMode(false);
+                    setAudioLinkSourceNode(null);
+                  }}
+                  className="ml-1 hover:text-white/80"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Load Image Button */}
+            <label className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm font-medium transition-colors cursor-pointer flex items-center gap-2">
+              <Upload size={16} />
+              Load Image
+              <input
+                ref={imageUploadRef}
+                type="file"
+                accept="image/*"
+                onChange={handleLoadImage}
+                className="hidden"
+              />
+            </label>
+
+            {/* Hidden file input for node-specific image upload */}
+            <input
+              ref={nodeImageUploadRef}
+              type="file"
+              accept="image/*"
+              onChange={handleNodeImageSelected}
+              className="hidden"
+            />
 
             <button className="px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors">
               Buy Credits
@@ -1291,12 +2020,80 @@ export default function CanvasPage() {
         </div>
 
         <div
+          ref={canvasContainerRef}
           className="relative w-full h-screen overflow-auto bg-black"
           style={{
             backgroundImage: 'radial-gradient(circle, #18181b 1px, transparent 1px)',
             backgroundSize: '30px 30px',
           }}
+          onMouseMove={handleCanvasMouseMove}
+          onMouseUp={handleCanvasMouseUp}
+          onMouseLeave={() => {
+            if (draggingWire) {
+              setDraggingWire(null);
+              setRefLinkingMode(false);
+              setRefLinkSourceNode(null);
+              setLinkingMode(false);
+              setLinkSourceNode(null);
+              setAudioLinkingMode(false);
+              setAudioLinkSourceNode(null);
+            }
+          }}
         >
+          {/* Dragging Wire Preview */}
+          {draggingWire && (
+            <svg
+              className="fixed top-0 left-0 w-screen h-screen pointer-events-none z-[100]"
+              style={{ overflow: 'visible' }}
+            >
+              <defs>
+                <filter id="wire-glow">
+                  <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                  <feMerge>
+                    <feMergeNode in="coloredBlur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              {/* Glow effect */}
+              <path
+                d={`M ${draggingWire.startX} ${draggingWire.startY} C ${draggingWire.startX + 80} ${draggingWire.startY}, ${draggingWire.currentX - 80} ${draggingWire.currentY}, ${draggingWire.currentX} ${draggingWire.currentY}`}
+                stroke={draggingWire.type === 'ref' ? '#a855f7' : draggingWire.type === 'seq' ? '#3b82f6' : '#22c55e'}
+                strokeWidth="8"
+                fill="none"
+                opacity="0.3"
+                filter="url(#wire-glow)"
+              />
+              {/* Main wire */}
+              <path
+                d={`M ${draggingWire.startX} ${draggingWire.startY} C ${draggingWire.startX + 80} ${draggingWire.startY}, ${draggingWire.currentX - 80} ${draggingWire.currentY}, ${draggingWire.currentX} ${draggingWire.currentY}`}
+                stroke={draggingWire.type === 'ref' ? '#a855f7' : draggingWire.type === 'seq' ? '#3b82f6' : '#22c55e'}
+                strokeWidth="3"
+                fill="none"
+                strokeLinecap="round"
+              />
+              {/* Animated dash */}
+              <path
+                d={`M ${draggingWire.startX} ${draggingWire.startY} C ${draggingWire.startX + 80} ${draggingWire.startY}, ${draggingWire.currentX - 80} ${draggingWire.currentY}, ${draggingWire.currentX} ${draggingWire.currentY}`}
+                stroke={draggingWire.type === 'ref' ? '#c084fc' : draggingWire.type === 'seq' ? '#60a5fa' : '#4ade80'}
+                strokeWidth="2"
+                fill="none"
+                strokeDasharray="8,8"
+                strokeLinecap="round"
+                style={{ animation: 'wireDash 0.5s linear infinite' }}
+              />
+              {/* Start dot */}
+              <circle cx={draggingWire.startX} cy={draggingWire.startY} r="6" fill={draggingWire.type === 'ref' ? '#a855f7' : draggingWire.type === 'seq' ? '#3b82f6' : '#22c55e'} />
+              {/* End dot */}
+              <circle cx={draggingWire.currentX} cy={draggingWire.currentY} r="6" fill={draggingWire.type === 'ref' ? '#a855f7' : draggingWire.type === 'seq' ? '#3b82f6' : '#22c55e'} />
+              <style>{`
+                @keyframes wireDash {
+                  to { stroke-dashoffset: -16; }
+                }
+              `}</style>
+            </svg>
+          )}
+
           {/* Nodes Container with Zoom */}
           <div
             style={{
@@ -1323,13 +2120,42 @@ export default function CanvasPage() {
                   setCurrentNodeId(nodeId);
                   setShowDrawingModal(true);
                 }}
-                isSelected={canvas.selectedNodeId === node.id || linkSourceNode === node.id}
+                isSelected={canvas.selectedNodeId === node.id || linkSourceNode === node.id || refLinkSourceNode === node.id || audioLinkSourceNode === node.id}
                 onClick={() => handleNodeClick(node.id)}
                 characterRefs={characterRefs}
+                faces={faces}
                 onSaveAsReference={handleSaveAsReference}
                 onGenerateSequence={node.connections?.next ? () => handleGenerateSequence(node.id) : undefined}
-                isLinkingMode={linkingMode}
-                isLinkSource={linkSourceNode === node.id}
+                isLinkingMode={linkingMode || refLinkingMode || audioLinkingMode}
+                isLinkSource={linkSourceNode === node.id || refLinkSourceNode === node.id || audioLinkSourceNode === node.id}
+                // Port click handlers
+                onRefOutputClick={handleRefOutputClick}
+                onRefInputClick={handleRefInputClick}
+                onSeqOutputClick={handleSeqOutputClick}
+                onSeqInputClick={handleSeqInputClick}
+                onAudioOutputClick={handleAudioOutputClick}
+                onAudioInputClick={handleAudioInputClick}
+                // Wire drag handlers
+                onPortDragStart={handlePortDragStart}
+                // Connection state
+                hasRefConnections={!!node.connections?.references?.length}
+                hasSeqNext={!!node.connections?.next}
+                hasSeqPrev={canvas.nodes.some(n => n.connections?.next === node.id)}
+                hasAudioConnection={!!node.connections?.audioSource}
+                refLinkingMode={refLinkingMode}
+                seqLinkingMode={linkingMode}
+                audioLinkingMode={audioLinkingMode}
+                // Upscale, nano-correct, and Kling
+                onUpscale={node.imageUrl ? handleUpscale : undefined}
+                onNanoCorrect={node.imageUrl ? handleNanoCorrect : undefined}
+                isUpscaling={upscalingNodeId === node.id}
+                onKlingI2V={node.imageUrl ? handleKlingI2V : undefined}
+                isKlingGenerating={klingGeneratingNodeId === node.id}
+                // Magic prompt enhancement
+                onMagicPrompt={handleMagicPrompt}
+                isMagicPromptLoading={magicPromptLoadingNodeId === node.id}
+                // Image upload for i2v and other image-input nodes
+                onLoadImage={handleNodeLoadImage}
               />
             ))}
           </div>
@@ -1366,15 +2192,33 @@ export default function CanvasPage() {
 
       {/* Drawing Modal - Resizable */}
       {showDrawingModal && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div 
+        <div
+          className="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={(e) => {
+            // Close modal when clicking backdrop (outside the modal content)
+            if (e.target === e.currentTarget) {
+              setShowDrawingModal(false);
+              setCurrentNodeId(null);
+            }
+          }}
+          onKeyDown={(e) => {
+            // Close modal on Escape key
+            if (e.key === 'Escape') {
+              setShowDrawingModal(false);
+              setCurrentNodeId(null);
+            }
+          }}
+          tabIndex={0}
+        >
+          <div
             className="relative bg-zinc-950 rounded-xl border border-zinc-800 flex flex-col"
-            style={{ 
-              width: `${modalSize.width}px`, 
+            style={{
+              width: `${modalSize.width}px`,
               height: `${modalSize.height}px`,
               maxWidth: '95vw',
               maxHeight: '95vh'
             }}
+            onClick={(e) => e.stopPropagation()} // Prevent backdrop click when clicking inside modal
           >
             {/* Header with drag handle */}
             <div className="flex items-center justify-between p-4 border-b border-zinc-800 cursor-move select-none">
@@ -1431,8 +2275,13 @@ export default function CanvasPage() {
                 <DrawingCanvas
                   width={modalSize.width - 80}
                   height={modalSize.height - 120}
-                  onSave={(imageData, prompt, autoGenerate) => handleSaveSketch(imageData, prompt, autoGenerate || false)}
+                  onSave={(imageData, prompt, autoGenerate, controlnetMode) => handleSaveSketch(imageData, prompt, autoGenerate || false, controlnetMode as ControlNetMode)}
                   nodeId={currentNodeId || undefined}
+                  initialControlnetMode={
+                    currentNodeId
+                      ? (canvas.nodes.find(n => n.id === currentNodeId)?.settings?.controlnetMode as ControlNetMode) || 'img2img'
+                      : 'img2img'
+                  }
                 />
               )}
             </div>

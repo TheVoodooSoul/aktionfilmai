@@ -5,6 +5,16 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Server-side client with service role (bypasses RLS) - use only in API routes
+export function getSupabaseAdmin() {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    console.warn('SUPABASE_SERVICE_ROLE_KEY not set, falling back to anon key');
+    return supabase;
+  }
+  return createClient(supabaseUrl, serviceRoleKey);
+}
+
 // Database types
 export type Database = {
   profiles: {

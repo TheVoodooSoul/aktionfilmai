@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowLeft, Send, Plus, Play, FileText, Video, Square, Upload, Sparkles, Volume2, Wand2 } from 'lucide-react';
+import { ArrowLeft, Send, Plus, Play, FileText, Video, Square, Upload, Sparkles, Volume2, Wand2, Home, PenTool, MessageSquare, Film, Coins, BookOpen, Users } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { supabase } from '@/lib/supabase';
 
@@ -506,16 +506,56 @@ export default function ImprovPage() {
     <div className="min-h-screen bg-black text-white flex flex-col">
       {/* Header */}
       <div className="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-50">
-        <div className="px-6 py-4 flex items-center justify-between">
+        <div className="px-6 py-3 flex items-center justify-between">
+          {/* Left: Navigation */}
           <div className="flex items-center gap-4">
-            <Link href="/writers-room" className="text-zinc-400 hover:text-white transition-colors">
-              <ArrowLeft size={24} />
+            <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
+              <Home size={20} />
             </Link>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-red-500 to-red-700 bg-clip-text text-transparent">
-              {mode === 'chat' ? 'IMPROV SESSION' : 'SCENE RECORDING'}
+            <div className="h-4 w-px bg-zinc-800" />
+            <h1 className="text-xl font-bold bg-gradient-to-r from-red-500 to-red-700 bg-clip-text text-transparent">
+              WRITERS ROOM
             </h1>
           </div>
-          <div className="flex items-center gap-3">
+
+          {/* Center: Mode Tabs */}
+          <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded-lg border border-zinc-800">
+            <Link
+              href="/writers-room/structure"
+              className="px-4 py-1.5 text-zinc-400 hover:text-white rounded text-sm font-medium flex items-center gap-2 transition-colors"
+            >
+              <BookOpen size={14} />
+              Structure
+            </Link>
+            <Link
+              href="/writers-room/characters"
+              className="px-4 py-1.5 text-zinc-400 hover:text-white rounded text-sm font-medium flex items-center gap-2 transition-colors"
+            >
+              <Users size={14} />
+              Characters
+            </Link>
+            <Link
+              href="/writers-room/scenes"
+              className="px-4 py-1.5 text-zinc-400 hover:text-white rounded text-sm font-medium flex items-center gap-2 transition-colors"
+            >
+              <Film size={14} />
+              Scenes
+            </Link>
+            <Link
+              href="/writers-room"
+              className="px-4 py-1.5 text-zinc-400 hover:text-white rounded text-sm font-medium flex items-center gap-2 transition-colors"
+            >
+              <PenTool size={14} />
+              Script
+            </Link>
+            <div className="px-4 py-1.5 bg-red-600 text-white rounded text-sm font-medium flex items-center gap-2">
+              <MessageSquare size={14} />
+              Improv
+            </div>
+          </div>
+
+          {/* Right: Actions */}
+          <div className="flex items-center gap-2">
             {selectedCharacter && (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg">
                 <button

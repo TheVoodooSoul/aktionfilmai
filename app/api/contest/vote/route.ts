@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { verifyAuth } from '@/lib/api/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,7 +9,24 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authentication
+    const { user, error: authError } = await verifyAuth(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: authError || 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { submissionId, userId, voteType, tokenId } = await request.json();
+
+    // Verify the userId matches the authenticated user
+    if (userId !== user.id) {
+      return NextResponse.json(
+        { error: 'User ID mismatch - cannot vote as another user' },
+        { status: 403 }
+      );
+    }
 
     if (!submissionId || !userId || !voteType) {
       return NextResponse.json(
@@ -144,10 +162,27 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // Verify authentication
+    const { user, error: authError } = await verifyAuth(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: authError || 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const submissionId = searchParams.get('submissionId');
     const userId = searchParams.get('userId');
     const voteType = searchParams.get('voteType');
+
+    // Verify the userId matches the authenticated user
+    if (userId !== user.id) {
+      return NextResponse.json(
+        { error: 'User ID mismatch - cannot modify another user\'s vote' },
+        { status: 403 }
+      );
+    }
 
     if (!submissionId || !userId || !voteType) {
       return NextResponse.json(

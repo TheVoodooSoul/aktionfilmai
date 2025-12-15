@@ -43,23 +43,33 @@ This is an improv exercise to help discover authentic dialogue. Be bold, emotion
       ? `Previous conversation:\n${historyContext}\n\nYOU: ${userMessage}\n\n${characterName}:`
       : `YOU: ${userMessage}\n\n${characterName}:`;
 
-    // Check and deduct credits if user is authenticated
-    if (userId) {
+    // Check and deduct credits (skip for super admin)
+    const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
+
+    if (userId && !isSuperAdmin) {
       const creditCheck = await checkCredits(userId, CREDIT_COSTS.WRITERS_ROOM_IMPROV);
       if (!creditCheck.success) {
-        // For beta, make text-only improv free
-        console.log('Credit check failed, using free tier for beta:', creditCheck.error);
-        // Continue with free tier limitations
-      } else {
-        // Deduct credits for premium features
-        const deductResult = await deductCredits(
-          userId, 
-          CREDIT_COSTS.WRITERS_ROOM_IMPROV,
-          'Writers Room - AI Improv Session'
+        return NextResponse.json(
+          {
+            error: 'Insufficient credits',
+            message: `Improv costs ${CREDIT_COSTS.WRITERS_ROOM_IMPROV} credit per message. ${creditCheck.error}`,
+            credits_needed: CREDIT_COSTS.WRITERS_ROOM_IMPROV,
+          },
+          { status: 402 }
         );
-        if (!deductResult.success) {
-          console.log('Credit deduction failed, using free tier');
-        }
+      }
+
+      // Deduct credits
+      const deductResult = await deductCredits(
+        userId,
+        CREDIT_COSTS.WRITERS_ROOM_IMPROV,
+        'Writers Room - AI Improv'
+      );
+      if (!deductResult.success) {
+        return NextResponse.json(
+          { error: 'Failed to process credits' },
+          { status: 500 }
+        );
       }
     }
 

@@ -1,39 +1,113 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { getSupabaseAdmin } from '@/lib/supabase';
+
+// Helper to upload base64 to Supabase and get public URL
+async function uploadBase64ToStorage(base64Data: string, folder: string): Promise<string> {
+  const supabaseAdmin = getSupabaseAdmin();
+
+  // Extract mime type and data
+  const matches = base64Data.match(/^data:([^;]+);base64,(.+)$/);
+  if (!matches) {
+    throw new Error('Invalid base64 data');
+  }
+
+  const mimeType = matches[1];
+  const base64 = matches[2];
+  const buffer = Buffer.from(base64, 'base64');
+
+  // Determine file extension
+  const extMap: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/quicktime': 'mov',
+  };
+  const ext = extMap[mimeType] || 'bin';
+
+  const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+
+  const { error } = await supabaseAdmin.storage
+    .from('character-uploads')
+    .upload(fileName, buffer, {
+      contentType: mimeType,
+      upsert: false,
+    });
+
+  if (error) {
+    console.error('Storage upload error:', error);
+    throw new Error('Failed to upload file: ' + error.message);
+  }
+
+  const { data: { publicUrl } } = supabaseAdmin.storage
+    .from('character-uploads')
+    .getPublicUrl(fileName);
+
+  return publicUrl;
+}
 
 /**
  * A2E Avatar Training API
- * Train avatar from video (FREE) or image (30 credits)
+ * Train avatar from video (10 credits) or image (30 credits)
  */
 export async function POST(req: NextRequest) {
   try {
     const {
       videoUrl,
+      videoBase64,
       imageUrl,
+      imageBase64,
       name,
       gender,
       prompt,
       negativePrompt,
       backgroundColor,
       backgroundImage,
+      backgroundImageBase64,
       userId
     } = await req.json();
 
+    // Upload base64 to storage if provided, otherwise use URL
+    let videoSource = videoUrl;
+    let imageSource = imageUrl;
+    let bgImageSource = backgroundImage;
+
+    if (videoBase64) {
+      console.log('Uploading video to storage...');
+      videoSource = await uploadBase64ToStorage(videoBase64, `avatars/${userId || 'anonymous'}`);
+      console.log('Video uploaded:', videoSource);
+    }
+
+    if (imageBase64) {
+      console.log('Uploading image to storage...');
+      imageSource = await uploadBase64ToStorage(imageBase64, `avatars/${userId || 'anonymous'}`);
+      console.log('Image uploaded:', imageSource);
+    }
+
+    if (backgroundImageBase64) {
+      console.log('Uploading background to storage...');
+      bgImageSource = await uploadBase64ToStorage(backgroundImageBase64, `backgrounds/${userId || 'anonymous'}`);
+      console.log('Background uploaded:', bgImageSource);
+    }
+
     console.log('Train Avatar Request:', {
-      hasVideoUrl: !!videoUrl,
-      hasImageUrl: !!imageUrl,
+      hasVideoSource: !!videoSource,
+      hasImageSource: !!imageSource,
       name,
       gender,
       hasPrompt: !!prompt,
       hasBackgroundColor: !!backgroundColor,
-      hasBackgroundImage: !!backgroundImage,
+      hasBgImageSource: !!bgImageSource,
       userId,
     });
 
-    if (!name || !gender || (!videoUrl && !imageUrl)) {
+    if (!name || !gender || (!videoSource && !imageSource)) {
       return NextResponse.json(
-        { error: 'name, gender (male/female), and either videoUrl or imageUrl are required' },
+        { error: 'name, gender (male/female), and either video or image are required' },
         { status: 400 }
       );
     }
@@ -49,9 +123,12 @@ export async function POST(req: NextRequest) {
     const supabase = createRouteHandlerClient({ cookies });
 
     // Determine cost: video = 10 credits, image = 30 credits
-    const cost = videoUrl ? 10 : 30;
+    const cost = videoSource ? 10 : 30;
 
-    if (cost > 0 && userId) {
+    // Skip credit check for superadmin
+    const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
+
+    if (cost > 0 && userId && !isSuperAdmin) {
       // Check credits
       const { data: profile } = await supabase
         .from('profiles')
@@ -87,17 +164,17 @@ export async function POST(req: NextRequest) {
       gender: gender, // Required: 'male' or 'female'
     };
 
-    if (videoUrl) {
-      requestBody.video_url = videoUrl;
+    if (videoSource) {
+      requestBody.video_url = videoSource;
       // Video-specific options
       if (backgroundColor) {
         requestBody.video_backgroud_color = backgroundColor; // Note: A2E typo "backgroud"
       }
-      if (backgroundImage) {
-        requestBody.video_backgroud_image = backgroundImage;
+      if (bgImageSource) {
+        requestBody.video_backgroud_image = bgImageSource;
       }
-    } else if (imageUrl) {
-      requestBody.image_url = imageUrl;
+    } else if (imageSource) {
+      requestBody.image_url = imageSource;
       // Image-specific options
       if (prompt) {
         requestBody.prompt = prompt;
@@ -180,14 +257,14 @@ export async function POST(req: NextRequest) {
     console.log('Avatar Training Started:', {
       avatarId,
       cost,
-      type: videoUrl ? 'video' : 'image',
+      type: videoSource ? 'video' : 'image',
     });
 
     return NextResponse.json({
       avatar_id: avatarId,
       status: 'training',
       cost,
-      message: videoUrl ? 'Avatar training started (FREE)' : 'Avatar training started (30 credits)',
+      message: videoSource ? 'Avatar training started (10 credits)' : 'Avatar training started (30 credits)',
     });
   } catch (error) {
     console.error('Train avatar error:', error);

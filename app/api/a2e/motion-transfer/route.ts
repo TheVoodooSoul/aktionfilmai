@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     const response = await fetch('https://video.a2e.ai/api/v1/motionTransfer/start', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.A2E_API_TOKEN}`,
+        'Authorization': `Bearer ${process.env.A2E_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
 
       const statusResponse = await fetch(`https://video.a2e.ai/api/v1/motionTransfer/${taskId}`, {
         headers: {
-          'Authorization': `Bearer ${process.env.A2E_API_TOKEN}`,
+          'Authorization': `Bearer ${process.env.A2E_API_KEY}`,
         },
       });
 

@@ -66,25 +66,27 @@ http://localhost:3000/canvas
 
 ```env
 # OpenAI
-OPENAI_API_KEY=sk-proj-dne6Sgc4rkt2B649Qdu6vWSUa
+OPENAI_API_KEY=sk-proj-your-openai-key-here
 
 # RunComfy
-RUNCOMFY_API_TOKEN=MTc2NTllY2UtOTE2Mi00NjE3LWJmNGItYjliZDY5MmNcIt
-RUNCOMFY_DEPLOYMENT_ID=437a16af-d5ad-4eff-a6d9-3e094c5c0e
+RUNCOMFY_API_TOKEN=your-runcomfy-token-here
+RUNCOMFY_DEPLOYMENT_ID=your-deployment-id-here
 
 # A2E.AI
-A2E_API_KEY=sk_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2OTE4YzA1ZTQxNDc3ZDAwNThiMjM4MjIiLCJuYW1lIjoiYWRhbS5hY2Uud2F0c29uQGdtYWlsLmNvbSIsInJvbGUiOiJjb2luIiwiaWF0IjoxNzYzMjMxMjY0fQ.By4M6fRRAMLCwy_otDngmcAbNHh4n1Y-XMTYRjg9eeM
+A2E_API_KEY=sk_your-a2e-api-key-here
 A2E_API_URL=https://api.a2e.ai
 
 # Stripe
-STRIPE_SECRET_KEY=2NmB85J2cYvV6swhPeEterKSts5RlXJYEl6
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=K4M18dlGtx5EMPrLxVQEbQ00vP7AZRM0
+STRIPE_SECRET_KEY=sk_live_your-stripe-secret-key
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_your-stripe-publishable-key
 
 # Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://bqxxyqlbxyvfuanoiwyh.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxeHh5cWxieHl2ZnVhbm9pd3loIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMyMjQ1NTEsImV4cCI6MjA3ODgwMDU1MX0.4X2NY0Sb5qmGrtPRI0VPjpTDHTgjr0xGsIWL1m2DSc0
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxeHh5cWxieHl2ZnVhbm9pd3loIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzIyNDU1MSwiZXhwIjoyMDc4ODAwNTUxfQ.OOKopXl7_G7P4ZX9QHcnRB8Wqc4QwI9kjaB0xKWKyBM
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 ```
+
+> **Note:** Get your actual keys from your .env.local file or respective service dashboards. Never commit real keys to git!
 
 ---
 

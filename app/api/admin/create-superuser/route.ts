@@ -1,13 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/api/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Allowed IPs for superuser creation (add your IPs here)
+const ALLOWED_IPS = ['127.0.0.1', '::1', 'localhost'];
+
+// Secret key required in header for additional protection
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY;
+
 export async function POST(request: NextRequest) {
   try {
+    // Security Layer 1: Check for admin secret header
+    const adminSecret = request.headers.get('x-admin-secret');
+    if (ADMIN_SECRET && adminSecret !== ADMIN_SECRET) {
+      return NextResponse.json(
+        { error: 'Unauthorized - Invalid admin secret' },
+        { status: 401 }
+      );
+    }
+
+    // Security Layer 2: Try to verify if caller is already an admin
+    const authResult = await requireAdmin(request);
+    if (authResult instanceof NextResponse) {
+      // If no admin auth, check if this is the FIRST superuser creation
+      const { count } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('subscription_tier', 'superadmin');
+
+      // Only allow unauthenticated creation if NO superadmins exist yet
+      if (count && count > 0) {
+        return NextResponse.json(
+          { error: 'Unauthorized - Admin authentication required' },
+          { status: 401 }
+        );
+      }
+      console.log('First superuser creation - allowing without auth');
+    }
+
     const { email, password } = await request.json();
 
     if (!email || !password) {

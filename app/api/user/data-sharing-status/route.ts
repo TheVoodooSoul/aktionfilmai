@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { verifyAuth } from '@/lib/api/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,8 +9,25 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   try {
+    // Verify authentication
+    const { user, error: authError } = await verifyAuth(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: authError || 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
+
+    // User can only query their own data sharing status
+    if (userId !== user.id) {
+      return NextResponse.json(
+        { error: 'Cannot access another user\'s data sharing status' },
+        { status: 403 }
+      );
+    }
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID required' }, { status: 400 });

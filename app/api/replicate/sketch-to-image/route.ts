@@ -1,19 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
-import Replicate from 'replicate';
+import { supabase, getSupabaseAdmin } from '@/lib/supabase';
+
+// Helper to upload base64 to Supabase and get public URL
+async function uploadBase64ToStorage(base64Data: string, folder: string): Promise<string> {
+  const supabaseAdmin = getSupabaseAdmin();
+
+  // Extract mime type and data
+  const matches = base64Data.match(/^data:([^;]+);base64,(.+)$/);
+  if (!matches) {
+    throw new Error('Invalid base64 data');
+  }
+
+  const mimeType = matches[1];
+  const base64 = matches[2];
+  const buffer = Buffer.from(base64, 'base64');
+
+  // Determine file extension
+  const extMap: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+  };
+  const ext = extMap[mimeType] || 'png';
+
+  const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+
+  const { error } = await supabaseAdmin.storage
+    .from('character-uploads')
+    .upload(fileName, buffer, {
+      contentType: mimeType,
+      upsert: false,
+    });
+
+  if (error) {
+    console.error('Storage upload error:', error);
+    throw new Error('Failed to upload file: ' + error.message);
+  }
+
+  const { data: { publicUrl } } = supabaseAdmin.storage
+    .from('character-uploads')
+    .getPublicUrl(fileName);
+
+  return publicUrl;
+}
 
 export async function POST(req: NextRequest) {
   try {
     const { image, prompt, creativity, userId, characterInfo } = await req.json();
 
-    if (!process.env.REPLICATE_API_TOKEN) {
-      return NextResponse.json(
-        { error: 'Replicate API token not configured' },
-        { status: 500 }
-      );
-    }
-
-    // Validate and log image data
+    // Validate image data
     if (!image) {
       return NextResponse.json(
         { error: 'No image provided' },
@@ -30,24 +65,21 @@ export async function POST(req: NextRequest) {
       length: image.length,
     });
 
-    // Ensure the data URI has the correct format
-    let processedImage = image;
+    // Upload image to Supabase to get a public URL (SDXL requires URL, not data URI)
+    let inputImageUrl = image;
     if (isDataUri) {
-      // Extract mime type and validate
-      const mimeMatch = image.match(/^data:([^;]+);base64,/);
-      if (!mimeMatch) {
+      console.log('Uploading sketch to Supabase storage...');
+      try {
+        inputImageUrl = await uploadBase64ToStorage(image, `sketches/${userId || 'anonymous'}`);
+        console.log('Sketch uploaded to:', inputImageUrl);
+      } catch (uploadError: any) {
+        console.error('Failed to upload sketch:', uploadError);
         return NextResponse.json(
-          { error: 'Invalid image data URI format' },
-          { status: 400 }
+          { error: 'Failed to upload sketch: ' + uploadError.message },
+          { status: 500 }
         );
       }
-      console.log('Image mime type:', mimeMatch[1]);
     }
-
-    // Initialize Replicate client
-    const replicate = new Replicate({
-      auth: process.env.REPLICATE_API_TOKEN,
-    });
 
     // Build enhanced prompt with character info
     let enhancedPrompt = prompt || 'cinematic action scene, highly detailed, dramatic lighting, professional photography';
@@ -59,78 +91,94 @@ export async function POST(req: NextRequest) {
       enhancedPrompt = `${enhancedPrompt}, featuring ${charDescriptions}`;
     }
 
-    // Add action/combat keywords for better results
-    enhancedPrompt += ', action movie scene, intense fight, dynamic movement, epic cinematography';
+    // Add action/combat keywords and LIGHTING for better results (prevent dark outputs)
+    enhancedPrompt += ', action movie scene, intense fight, dynamic movement, epic cinematography, bright studio lighting, well-lit scene, professional lighting setup, clear visibility';
 
-    console.log('Replicate ControlNet Scribble Request:', {
-      hasToken: !!process.env.REPLICATE_API_TOKEN,
+    // Use ModelsLab Flux img2img for high quality sketch-to-image
+    console.log('ModelsLab Flux Request:', {
       prompt: enhancedPrompt,
-      hasImage: !!image,
+      inputImageUrl: inputImageUrl.substring(0, 80) + '...',
       creativity,
     });
 
-    // Use stability-ai/sdxl for image generation with img2img
-    // More reliable than controlnet models
-    console.log('Calling Replicate SDXL with image length:', processedImage.length);
+    // Map creativity (0-1) to strength
+    // Higher strength = more creative freedom from sketch
+    // Lower strength = follows sketch more closely
+    const strengthValue = creativity ? Math.max(0.35, Math.min(0.75, 0.4 + (creativity * 0.35))) : 0.55;
 
-    const output = await replicate.run(
-      "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-      {
-        input: {
-          image: processedImage,
-          prompt: enhancedPrompt,
-          num_outputs: 1,
-          num_inference_steps: 30,
-          guidance_scale: 7.5,
-          prompt_strength: creativity ? creativity : 0.8, // How much to transform the image
-          negative_prompt: "blurry, low quality, distorted, deformed, cartoon, anime, text, watermark, signature, amateur, lowres, bad anatomy, bad hands",
-        },
+    // Use ModelsLab img2img with flux-2-dev model (confirmed to allow action content)
+    const modelsLabResponse = await fetch('https://modelslab.com/api/v6/images/img2img', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key: process.env.MODELSLAB_API_KEY,
+        init_image: inputImageUrl,
+        prompt: enhancedPrompt,
+        model_id: 'flux-2-dev', // Updated to flux-2-dev for better action content support
+        width: '1024',
+        height: '1024',
+        samples: '1',
+        negative_prompt: '(worst quality:2), (low quality:2), (blurry), (bad anatomy), (disfigured), (deformed), (extra limbs), (bad proportions), (bad hands), (poorly drawn hands), (poorly drawn face), watermark, text, logo, dark, underexposed',
+        num_inference_steps: '31',
+        strength: strengthValue.toString(),
+        scheduler: 'DPMSolverMultistepScheduler',
+        guidance_scale: '7.5',
+        safety_checker: false, // Disable safety filter for action content
+        safety_checker_type: '', // No safety checker type
+        base64: 'no',
+      }),
+    });
+
+    const modelsLabData = await modelsLabResponse.json();
+    console.log('ModelsLab response:', JSON.stringify(modelsLabData, null, 2));
+
+    // Handle ModelsLab response
+    let output: any = null;
+
+    if (modelsLabData.status === 'success' && modelsLabData.output && modelsLabData.output.length > 0) {
+      output = modelsLabData.output;
+    } else if (modelsLabData.status === 'processing' && modelsLabData.fetch_result) {
+      // Poll for result
+      console.log('ModelsLab processing, polling...');
+      let attempts = 0;
+      while (attempts < 30) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const pollResponse = await fetch(modelsLabData.fetch_result, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: process.env.MODELSLAB_API_KEY }),
+        });
+        const pollData = await pollResponse.json();
+        console.log('Poll attempt', attempts + 1, ':', pollData.status);
+        if (pollData.status === 'success' && pollData.output && pollData.output.length > 0) {
+          output = pollData.output;
+          break;
+        } else if (pollData.status === 'failed') {
+          throw new Error('ModelsLab generation failed');
+        }
+        attempts++;
       }
-    );
-
-    console.log('Replicate ControlNet raw output type:', typeof output);
-    console.log('Replicate ControlNet output:', JSON.stringify(output, null, 2));
-
-    // Handle different output types from Replicate
-    let imageUrl: string | null = null;
-
-    if (typeof output === 'string') {
-      // Direct string URL
-      imageUrl = output;
-    } else if (Array.isArray(output)) {
-      // Array of URLs or FileOutput objects
-      const firstItem = output[0];
-      if (typeof firstItem === 'string') {
-        imageUrl = firstItem;
-      } else if (firstItem && typeof firstItem === 'object') {
-        // FileOutput object - convert to string
-        imageUrl = firstItem.url?.() || firstItem.toString() || String(firstItem);
-      }
-    } else if (typeof output === 'object' && output !== null) {
-      // Single object response
-      const obj = output as any;
-      if (typeof obj.url === 'function') {
-        imageUrl = obj.url();
-      } else if (typeof obj.url === 'string') {
-        imageUrl = obj.url;
-      } else if (typeof obj.output === 'string') {
-        imageUrl = obj.output;
-      } else if (Array.isArray(obj.output)) {
-        const firstOutput = obj.output[0];
-        imageUrl = typeof firstOutput === 'string' ? firstOutput : String(firstOutput);
-      } else {
-        // Try toString as last resort
-        imageUrl = String(output);
-      }
+      if (!output) throw new Error('ModelsLab generation timed out');
+    } else if (modelsLabData.status === 'error') {
+      throw new Error('ModelsLab error: ' + (modelsLabData.message || 'Unknown'));
     }
 
-    // Ensure imageUrl is a string for logging
-    const urlPreview = typeof imageUrl === 'string' ? imageUrl.substring(0, 100) : String(imageUrl);
-    console.log('Processed imageUrl:', urlPreview + '...');
+    console.log('ModelsLab output:', JSON.stringify(output, null, 2));
 
-    if (!imageUrl) {
+    // Handle ModelsLab output - it's an array of URLs
+    let outputImageUrl: string | null = null;
+
+    if (Array.isArray(output) && output.length > 0) {
+      outputImageUrl = output[0];
+    } else if (typeof output === 'string') {
+      outputImageUrl = output;
+    }
+
+    console.log('Extracted outputImageUrl:', outputImageUrl);
+
+    if (!outputImageUrl || !outputImageUrl.startsWith('http')) {
       return NextResponse.json(
-        { error: 'No image generated from ControlNet' },
+        { error: 'No image generated from ModelsLab' },
         { status: 500 }
       );
     }
@@ -157,17 +205,17 @@ export async function POST(req: NextRequest) {
             user_id: userId,
             amount: -1,
             transaction_type: 'preview',
-            description: 'Sketch to image (Replicate ControlNet Scribble)',
+            description: 'Sketch to image (ModelsLab Flux)',
           });
       }
     }
 
     return NextResponse.json({
-      output_url: imageUrl,
+      output_url: outputImageUrl,
       status: 'success',
     });
   } catch (error: any) {
-    console.error('Replicate ControlNet error:', error);
+    console.error('ModelsLab Flux error:', error);
     return NextResponse.json(
       { error: error.message || 'Failed to generate image' },
       { status: 500 }

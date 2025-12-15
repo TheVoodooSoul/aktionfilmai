@@ -3,13 +3,16 @@
 import { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Line, Rect, Circle, Image as KonvaImage } from 'react-konva';
 import { useStore } from '@/lib/store';
-import { Paintbrush, Eraser, Square, CircleIcon, Upload, Sliders, Sparkles } from 'lucide-react';
+import { Paintbrush, Eraser, Square, CircleIcon, Upload, Sliders, Sparkles, Wand2, Loader2 } from 'lucide-react';
+
+type ControlNetMode = 'img2img' | 'scribble' | 'canny' | 'openpose';
 
 interface DrawingCanvasProps {
   width: number;
   height: number;
-  onSave?: (imageData: string, prompt?: string, autoGenerate?: boolean) => void;
+  onSave?: (imageData: string, prompt?: string, autoGenerate?: boolean, controlnetMode?: ControlNetMode) => void;
   nodeId?: string;
+  initialControlnetMode?: ControlNetMode;
 }
 
 interface Shape {
@@ -26,7 +29,7 @@ interface Shape {
   fill?: string;
 }
 
-export default function DrawingCanvas({ width, height, onSave, nodeId }: DrawingCanvasProps) {
+export default function DrawingCanvas({ width, height, onSave, nodeId, initialControlnetMode }: DrawingCanvasProps) {
   const { drawing, setDrawing, credits, setCredits } = useStore();
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -38,6 +41,8 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
   const [style, setStyle] = useState('realistic');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [seed, setSeed] = useState(-1);
+  const [enhancingPrompt, setEnhancingPrompt] = useState(false);
+  const [controlnetMode, setControlnetMode] = useState<ControlNetMode>(initialControlnetMode || 'img2img');
 
   const stageRef = useRef<any>(null);
   const smoothPoints = useRef<number[]>([]);
@@ -151,10 +156,10 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
       const dataURL = stageRef.current.toDataURL();
       if (onSave) {
         if (includePrompt && nodeId) {
-          // Pass back both image, prompt, and auto-generate flag
-          onSave(dataURL, prompt, autoGenerate);
+          // Pass back both image, prompt, auto-generate flag, and controlnet mode
+          onSave(dataURL, prompt, autoGenerate, controlnetMode);
         } else {
-          onSave(dataURL, undefined, autoGenerate);
+          onSave(dataURL, undefined, autoGenerate, controlnetMode);
         }
       }
       return dataURL;
@@ -182,9 +187,39 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
     reader.readAsDataURL(file);
   };
 
-  // Removed generatePreview - we're using Replicate for sketch generation directly
+  // Enhance prompt using AI
+  const enhancePrompt = async () => {
+    if (!prompt.trim()) {
+      alert('Please enter a basic prompt first');
+      return;
+    }
 
-  // Removed auto-preview - not needed with Replicate
+    setEnhancingPrompt(true);
+    try {
+      const response = await fetch('/api/enhance-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          style,
+          context: 'action_scene' // Tell AI this is for action/fight scenes
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.enhanced_prompt) {
+          setPrompt(data.enhanced_prompt);
+        }
+      } else {
+        console.error('Failed to enhance prompt');
+      }
+    } catch (error) {
+      console.error('Error enhancing prompt:', error);
+    } finally {
+      setEnhancingPrompt(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4 max-w-full overflow-hidden">
@@ -423,14 +458,59 @@ export default function DrawingCanvas({ width, height, onSave, nodeId }: Drawing
 
       {/* Prompt Box */}
       <div className="space-y-2">
-        <label className="text-sm text-zinc-400">Your paragraph text</label>
+        <div className="flex items-center justify-between">
+          <label className="text-sm text-zinc-400">Describe your action scene</label>
+          <button
+            onClick={enhancePrompt}
+            disabled={enhancingPrompt || !prompt.trim()}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:from-zinc-700 disabled:to-zinc-700 text-white text-xs font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Enhance your prompt with AI"
+          >
+            {enhancingPrompt ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Wand2 size={14} />
+            )}
+            {enhancingPrompt ? 'Enhancing...' : 'Magic Prompt'}
+          </button>
+        </div>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe your action scene in detail - characters, movements, environment, cinematography..."
+          placeholder="Type a simple description like 'two fighters in a warehouse' and click Magic Prompt to enhance it..."
           className="w-full px-5 py-4 bg-zinc-900 border border-zinc-800 rounded-lg text-white text-base placeholder-zinc-600 focus:outline-none focus:border-red-600 resize-vertical min-h-[150px] leading-relaxed"
           rows={6}
         />
+      </div>
+
+      {/* ControlNet Mode Selector */}
+      <div className="space-y-2">
+        <label className="text-xs text-zinc-500">Generation Mode (How closely to follow your sketch)</label>
+        <div className="flex gap-2">
+          {([
+            { mode: 'img2img' as ControlNetMode, label: 'Standard', color: 'red', desc: 'Loose interpretation' },
+            { mode: 'scribble' as ControlNetMode, label: 'Scribble', color: 'purple', desc: 'Follows rough lines' },
+            { mode: 'canny' as ControlNetMode, label: 'Canny', color: 'blue', desc: 'Precise edges' },
+            { mode: 'openpose' as ControlNetMode, label: 'Pose', color: 'green', desc: 'Body pose detection' },
+          ]).map(({ mode, label, color, desc }) => (
+            <button
+              key={mode}
+              onClick={() => setControlnetMode(mode)}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                controlnetMode === mode
+                  ? color === 'red' ? 'bg-red-600 text-white ring-2 ring-red-400' :
+                    color === 'purple' ? 'bg-purple-600 text-white ring-2 ring-purple-400' :
+                    color === 'blue' ? 'bg-blue-600 text-white ring-2 ring-blue-400' :
+                    'bg-green-600 text-white ring-2 ring-green-400'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+              }`}
+              title={desc}
+            >
+              <div>{label}</div>
+              <div className="text-[10px] opacity-75">{desc}</div>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Info Tab - Style, Aspect Ratio, Seed */}

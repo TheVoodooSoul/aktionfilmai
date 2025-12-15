@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
         name: 'Image to Video',
         image_url: imageUrl,
         prompt: prompt || 'the person is speaking. Looking at the camera. detailed eyes, clear teeth, static camera view point, still background',
-        negative_prmpt: negativePrompt || 'six fingers, bad hands, lowres, low quality, worst quality, moving camera view point, still image',
+        negative_prompt: negativePrompt || 'six fingers, bad hands, lowres, low quality, worst quality, moving camera view point, still image',
       }),
     });
 

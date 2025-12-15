@@ -1,6 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { getSupabaseAdmin } from '@/lib/supabase';
+
+// Helper to upload base64 to Supabase and get public URL
+async function uploadBase64ToStorage(base64Data: string, folder: string): Promise<string> {
+  const supabaseAdmin = getSupabaseAdmin();
+
+  // Extract mime type and data
+  const matches = base64Data.match(/^data:([^;]+);base64,(.+)$/);
+  if (!matches) {
+    throw new Error('Invalid base64 data');
+  }
+
+  const mimeType = matches[1];
+  const base64 = matches[2];
+  const buffer = Buffer.from(base64, 'base64');
+
+  // Determine file extension
+  const extMap: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+  };
+  const ext = extMap[mimeType] || 'bin';
+
+  const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+
+  const { error } = await supabaseAdmin.storage
+    .from('character-uploads')
+    .upload(fileName, buffer, {
+      contentType: mimeType,
+      upsert: false,
+    });
+
+  if (error) {
+    console.error('Storage upload error:', error);
+    throw new Error('Failed to upload file: ' + error.message);
+  }
+
+  const { data: { publicUrl } } = supabaseAdmin.storage
+    .from('character-uploads')
+    .getPublicUrl(fileName);
+
+  return publicUrl;
+}
 
 /**
  * A2E Add Face Swap Image API
@@ -8,18 +53,27 @@ import { cookies } from 'next/headers';
  */
 export async function POST(req: NextRequest) {
   try {
-    const { faceUrl, userId } = await req.json();
+    const { faceUrl, faceBase64, userId } = await req.json();
 
     console.log('Add Face Image Request:', {
-      faceUrl,
+      hasFaceUrl: !!faceUrl,
+      hasFaceBase64: !!faceBase64,
       userId,
     });
 
-    if (!faceUrl) {
+    if (!faceUrl && !faceBase64) {
       return NextResponse.json(
-        { error: 'faceUrl (public URL) is required' },
+        { error: 'faceUrl or faceBase64 is required' },
         { status: 400 }
       );
+    }
+
+    // Upload base64 to storage if provided, otherwise use URL
+    let imageToUpload = faceUrl;
+    if (faceBase64) {
+      console.log('Uploading face image to storage...');
+      imageToUpload = await uploadBase64ToStorage(faceBase64, `faces/${userId || 'anonymous'}`);
+      console.log('Face image uploaded:', imageToUpload);
     }
 
     const apiKey = process.env.A2E_API_KEY;
@@ -35,7 +89,10 @@ export async function POST(req: NextRequest) {
     // Cost for adding face (assuming 3 credits)
     const cost = 3;
 
-    if (cost > 0 && userId) {
+    // Skip credit check for superadmin
+    const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
+
+    if (cost > 0 && userId && !isSuperAdmin) {
       // Check credits
       const { data: profile } = await supabase
         .from('profiles')
@@ -74,7 +131,7 @@ export async function POST(req: NextRequest) {
         'x-lang': 'en-US',
       },
       body: JSON.stringify({
-        face_url: faceUrl,
+        face_url: imageToUpload,
       }),
     });
 

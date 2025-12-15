@@ -1,22 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
+import { CREDIT_COSTS } from '@/lib/credits';
 
 // Simple OpenAI streaming implementation
 
 export async function POST(request: NextRequest) {
   try {
-    const { script, action, context } = await request.json();
+    const { script, action, context, userId } = await request.json();
 
     if (!script) {
       return Response.json({ error: 'Script content is required' }, { status: 400 });
     }
 
+    // Check and deduct credits (skip for super admin)
+    const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
+
+    if (userId && !isSuperAdmin) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('credits')
+        .eq('id', userId)
+        .single();
+
+      if (!profile || profile.credits < CREDIT_COSTS.WRITERS_ROOM_AI_SUGGESTION) {
+        return NextResponse.json(
+          {
+            error: 'Insufficient credits',
+            message: `AI suggestions cost ${CREDIT_COSTS.WRITERS_ROOM_AI_SUGGESTION} credit.`,
+            credits_needed: CREDIT_COSTS.WRITERS_ROOM_AI_SUGGESTION,
+          },
+          { status: 402 }
+        );
+      }
+
+      // Deduct credits
+      await supabase
+        .from('profiles')
+        .update({ credits: profile.credits - CREDIT_COSTS.WRITERS_ROOM_AI_SUGGESTION })
+        .eq('id', userId);
+
+      await supabase
+        .from('credit_transactions')
+        .insert({
+          user_id: userId,
+          amount: -CREDIT_COSTS.WRITERS_ROOM_AI_SUGGESTION,
+          transaction_type: 'ai_suggestion',
+          description: `Writers Room - AI ${action || 'improve'}`,
+        });
+    }
+
     // Different prompts based on the action
     let prompt = '';
-    
+
     switch (action) {
       case 'improve':
-        prompt = `You are an expert action screenplay writer specializing in high-octane, cinematic action sequences. 
-        
+        prompt = `You are an expert action screenplay writer specializing in high-octane, cinematic action sequences.
+
 Analyze this script excerpt and provide specific improvements focused on:
 1. Action choreography and pacing
 2. Visual descriptions that enhance cinematography
@@ -52,6 +91,47 @@ Provide improved dialogue that feels authentic to action heroes - short, impactf
 ${script}
 
 Provide specific, cinematic action beats that would look amazing on screen:`;
+        break;
+
+      case 'logline':
+        prompt = `You're a logline specialist helping a screenwriter craft a killer logline. They've shared:
+
+${script}
+
+Help them strengthen it! Offer 3 different angles:
+
+1. **Tighten the hook** - Make the core conflict pop in fewer words
+2. **Raise the stakes** - What makes us NEED to see this story?
+3. **Character lens** - Focus on who the protagonist is and their flaw/goal
+
+Keep each suggestion to 1-2 sentences max. Be specific to THEIR story. End with "What feels closest to your vision?" to keep the conversation going.`;
+        break;
+
+      case 'beat':
+        prompt = `You're a writing partner brainstorming with a fellow screenwriter. They're working on this beat for their action screenplay:
+
+${script}
+
+Instead of writing it FOR them, offer 3 SHORT different directions they could take this beat. Format it like a casual brainstorm:
+
+"What if..." followed by a punchy 1-2 sentence idea.
+
+Keep each idea distinct - maybe one is more character-focused, one more action-driven, one with a twist. Be specific to THEIR story, not generic. Talk like a collaborator, not an AI assistant. End with "Which direction speaks to you?" or similar to invite discussion.`;
+        break;
+
+      case 'riff':
+        prompt = `You're a writing partner having a conversation with a screenwriter. They just said:
+
+"${script}"
+
+IMPORTANT: Actually respond to what they said! If they asked a question, ANSWER it directly. If they picked an option, build on THAT specific choice. If they shared an idea, react to THAT idea.
+
+Do NOT generate new random ideas. Have an actual conversation:
+- If they ask "what if X?" - respond to X specifically
+- If they say "I like option 2" - great, dig deeper into option 2
+- If they ask "how would that work?" - explain how it would work
+
+Keep it conversational, 2-3 sentences. End with a follow-up question to keep the dialogue going.`;
         break;
 
       default:
@@ -90,10 +170,52 @@ Provide suggestions to make it more cinematic and exciting:`;
       }),
     });
 
-    // Return the stream directly
-    return new Response(response.body, {
+    // Parse SSE stream and extract only the content
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        if (!reader) {
+          controller.close();
+          return;
+        }
+
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content;
+                if (content) {
+                  controller.enqueue(new TextEncoder().encode(content));
+                }
+              } catch {
+                // Skip malformed JSON
+              }
+            }
+          }
+        }
+
+        controller.close();
+      }
+    });
+
+    return new Response(stream, {
       headers: {
-        'Content-Type': 'text/event-stream',
+        'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
       },

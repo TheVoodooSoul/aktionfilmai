@@ -32,9 +32,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Available voices: alloy, echo, fable, onyx, nova, shimmer
-    const voiceOptions = {
+    const voiceOptions: Record<string, string> = {
       'male-deep': 'onyx',
-      'male-neutral': 'echo', 
+      'male-neutral': 'echo',
       'female-warm': 'nova',
       'female-energetic': 'shimmer',
       'narrator': 'alloy',

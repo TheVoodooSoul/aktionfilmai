@@ -1,17 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Upload, Sparkles, Video, Image as ImageIcon, User, CheckCircle, Clock, AlertCircle, Info, Trash2, Mic, UserCircle } from 'lucide-react';
+import { Upload, Sparkles, Video, Image as ImageIcon, User, CheckCircle, Clock, AlertCircle, Info, Trash2, Mic, UserCircle, Play, Square } from 'lucide-react';
 
 interface A2EAvatar {
   _id: string;
+  name?: string;
   type: 'custom' | 'default';
   video_cover: string;
   base_video: string;
   createdAt: string;
   user_video_twin_id?: string;
+  gender?: 'male' | 'female';
+  image_url?: string;
+  current_status?: string;
 }
 
 export default function CharactersPage() {
@@ -22,6 +26,10 @@ export default function CharactersPage() {
   const [avatars, setAvatars] = useState<A2EAvatar[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'t2i' | 'video' | 'image'>('video');
+
+  // Avatar filtering
+  const [avatarSearch, setAvatarSearch] = useState('');
+  const [showOnlyCustom, setShowOnlyCustom] = useState(false);
 
   // T2I form
   const [t2iPrompt, setT2iPrompt] = useState('');
@@ -34,7 +42,7 @@ export default function CharactersPage() {
   const [videoName, setVideoName] = useState('');
   const [videoGender, setVideoGender] = useState<'male' | 'female'>('male');
   const [videoBgType, setVideoBgType] = useState<'none' | 'color' | 'image'>('none');
-  const [videoBgColor, setVideoBgColor] = useState('rgb(0,255,0)'); // Green screen default
+  const [videoBgColor, setVideoBgColor] = useState('green'); // Green screen default
   const [videoBgImage, setVideoBgImage] = useState<File | null>(null);
   const [uploadingVideo, setUploadingVideo] = useState(false);
 
@@ -45,7 +53,7 @@ export default function CharactersPage() {
   const [imagePrompt, setImagePrompt] = useState('fixed shot, still background, the person is speaking, clear teeth, natural blink');
   const [imageNegativePrompt, setImageNegativePrompt] = useState('moving background, six fingers, bad hands, low quality, worst quality, moving viewpoint');
   const [imageBgType, setImageBgType] = useState<'none' | 'color' | 'image'>('none');
-  const [imageBgColor, setImageBgColor] = useState('rgb(255,255,255)'); // White default
+  const [imageBgColor, setImageBgColor] = useState('white'); // White default
   const [imageBgImage, setImageBgImage] = useState<File | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -67,6 +75,8 @@ export default function CharactersPage() {
   const [voiceClones, setVoiceClones] = useState<any[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [selectedGender, setSelectedGender] = useState<'all' | 'male' | 'female'>('all');
+  const [playingVoice, setPlayingVoice] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Face library state
   const [faces, setFaces] = useState<any[]>([]);
@@ -74,6 +84,12 @@ export default function CharactersPage() {
   const [faceFile, setFaceFile] = useState<File | null>(null);
   const [uploadingFace, setUploadingFace] = useState(false);
   const [deletingFace, setDeletingFace] = useState<string | null>(null);
+
+  // Face Swap state
+  const [swapSourceFace, setSwapSourceFace] = useState<File | null>(null);
+  const [swapTargetMedia, setSwapTargetMedia] = useState<File | null>(null);
+  const [swappingFace, setSwappingFace] = useState(false);
+  const [swapResult, setSwapResult] = useState<string | null>(null);
 
   // Voice clone state
   const [voiceFile, setVoiceFile] = useState<File | null>(null);
@@ -85,6 +101,25 @@ export default function CharactersPage() {
 
   useEffect(() => {
     async function getUser() {
+      // First check for dev mode user in localStorage
+      const storedUser = localStorage.getItem('aktionfilm_user') || localStorage.getItem('user');
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
+        // Give dev user unlimited credits
+        if (parsedUser.role === 'superadmin') {
+          setCredits(9999);
+        } else {
+          loadCredits(parsedUser.id);
+        }
+        loadAvatars();
+        loadBackgrounds();
+        loadVoices();
+        loadFaces();
+        return;
+      }
+
+      // Fall back to Supabase auth
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
       if (user) {
@@ -146,12 +181,13 @@ export default function CharactersPage() {
     setLoadingVoices(true);
     try {
       const [publicResponse, clonesResponse] = await Promise.all([
-        fetch('/api/a2e/voices/list?country=en&region=US'),
+        fetch('/api/a2e/voices/list-public?country=en&region=US'),
         fetch('/api/a2e/voices/clones'),
       ]);
 
       if (publicResponse.ok) {
         const data = await publicResponse.json();
+        // API returns nested structure with male/female groups
         setPublicVoices(data.voices || []);
       }
 
@@ -163,6 +199,71 @@ export default function CharactersPage() {
       console.error('Failed to load voices:', error);
     }
     setLoadingVoices(false);
+  }
+
+  // Play voice preview - generates TTS sample if no preview URL
+  async function playVoicePreview(voiceId: string, previewUrl?: string) {
+    // Stop current playing audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    // If same voice, just stop
+    if (playingVoice === voiceId) {
+      setPlayingVoice(null);
+      return;
+    }
+
+    setPlayingVoice(voiceId);
+
+    let audioUrl = previewUrl;
+
+    // If no preview URL, generate one via TTS API
+    if (!audioUrl) {
+      try {
+        const response = await fetch('/api/a2e/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: 'Hello! This is a preview of my voice. I can help bring your characters to life with realistic speech.',
+            voice_id: voiceId,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          audioUrl = data.audio_url;
+        } else {
+          setPlayingVoice(null);
+          alert('Could not generate voice preview. Try again later.');
+          return;
+        }
+      } catch (error) {
+        console.error('Voice preview error:', error);
+        setPlayingVoice(null);
+        alert('Could not generate voice preview.');
+        return;
+      }
+    }
+
+    // Play the audio
+    if (audioUrl) {
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      audio.play().catch(() => {
+        setPlayingVoice(null);
+        audioRef.current = null;
+      });
+      audio.onended = () => {
+        setPlayingVoice(null);
+        audioRef.current = null;
+      };
+      audio.onerror = () => {
+        setPlayingVoice(null);
+        audioRef.current = null;
+      };
+    }
   }
 
   async function loadFaces() {
@@ -232,6 +333,16 @@ export default function CharactersPage() {
     }
   }
 
+  // Helper to convert file to base64
+  async function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function handleVideoUpload() {
     if (!videoFile || !videoName.trim()) {
       alert('Please select a video and enter avatar name');
@@ -240,32 +351,13 @@ export default function CharactersPage() {
 
     setUploadingVideo(true);
     try {
-      // Upload video
-      const fileName = `${user?.id}/${Date.now()}-${videoFile.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('character-uploads')
-        .upload(fileName, videoFile);
+      // Convert video to base64
+      const videoBase64 = await fileToBase64(videoFile);
 
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl: videoUrl } } = supabase.storage
-        .from('character-uploads')
-        .getPublicUrl(fileName);
-
-      // Upload background image if provided
-      let bgImageUrl = undefined;
+      // Convert background image if provided
+      let bgImageBase64 = undefined;
       if (videoBgType === 'image' && videoBgImage) {
-        const bgFileName = `${user?.id}/${Date.now()}-bg-${videoBgImage.name}`;
-        const { error: bgError } = await supabase.storage
-          .from('character-uploads')
-          .upload(bgFileName, videoBgImage);
-
-        if (!bgError) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('character-uploads')
-            .getPublicUrl(bgFileName);
-          bgImageUrl = publicUrl;
-        }
+        bgImageBase64 = await fileToBase64(videoBgImage);
       }
 
       // Train avatar
@@ -273,11 +365,11 @@ export default function CharactersPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoUrl: videoUrl,
+          videoBase64: videoBase64,
           name: videoName,
           gender: videoGender,
           backgroundColor: videoBgType === 'color' ? videoBgColor : undefined,
-          backgroundImage: bgImageUrl,
+          backgroundImageBase64: bgImageBase64,
           userId: user?.id,
         }),
       });
@@ -308,32 +400,13 @@ export default function CharactersPage() {
 
     setUploadingImage(true);
     try {
-      // Upload image
-      const fileName = `${user?.id}/${Date.now()}-${imageFile.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('character-uploads')
-        .upload(fileName, imageFile);
+      // Convert image to base64
+      const imageBase64 = await fileToBase64(imageFile);
 
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl: imageUrl } } = supabase.storage
-        .from('character-uploads')
-        .getPublicUrl(fileName);
-
-      // Upload background image if provided
-      let bgImageUrl = undefined;
+      // Convert background image if provided
+      let bgImageBase64 = undefined;
       if (imageBgType === 'image' && imageBgImage) {
-        const bgFileName = `${user?.id}/${Date.now()}-bg-${imageBgImage.name}`;
-        const { error: bgError } = await supabase.storage
-          .from('character-uploads')
-          .upload(bgFileName, imageBgImage);
-
-        if (!bgError) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('character-uploads')
-            .getPublicUrl(bgFileName);
-          bgImageUrl = publicUrl;
-        }
+        bgImageBase64 = await fileToBase64(imageBgImage);
       }
 
       // Train avatar
@@ -341,13 +414,13 @@ export default function CharactersPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageUrl: imageUrl,
+          imageBase64: imageBase64,
           name: imageName,
           gender: imageGender,
           prompt: imagePrompt,
           negativePrompt: imageNegativePrompt,
           backgroundColor: imageBgType === 'color' ? imageBgColor : undefined,
-          backgroundImage: bgImageUrl,
+          backgroundImageBase64: bgImageBase64,
           userId: user?.id,
         }),
       });
@@ -570,24 +643,21 @@ export default function CharactersPage() {
 
     setUploadingFace(true);
     try {
-      // Upload to Supabase
-      const fileName = `${user?.id}/faces/${Date.now()}-${faceFile.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('character-uploads')
-        .upload(fileName, faceFile);
+      // Convert file to base64 for direct upload to A2E
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(faceFile);
+      });
+      const base64Data = await base64Promise;
 
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('character-uploads')
-        .getPublicUrl(fileName);
-
-      // Add to A2E library
+      // Add to A2E library using base64
       const response = await fetch('/api/a2e/faces/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          faceUrl: publicUrl,
+          faceBase64: base64Data,
           userId: user?.id,
         }),
       });
@@ -635,6 +705,47 @@ export default function CharactersPage() {
       alert('Failed to delete face: ' + error.message);
     } finally {
       setDeletingFace(null);
+    }
+  }
+
+  // Face Swap function
+  async function handleFaceSwap() {
+    if (!swapSourceFace || !swapTargetMedia) {
+      alert('Please select both a source face and target video (MP4, WebM, or MOV)');
+      return;
+    }
+
+    setSwappingFace(true);
+    setSwapResult(null);
+
+    try {
+      // Convert both files to base64
+      const sourceBase64 = await fileToBase64(swapSourceFace);
+      const targetBase64 = await fileToBase64(swapTargetMedia);
+
+      const response = await fetch('/api/a2e/face-swap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          faceBase64: sourceBase64,
+          videoBase64: targetBase64,
+          name: 'Face Swap',
+          userId: user?.id,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Face swap failed');
+      }
+
+      setSwapResult(data.output_url);
+      alert('✅ Face swap complete!');
+    } catch (error: any) {
+      console.error('Face swap error:', error);
+      alert('Face swap failed: ' + error.message);
+    } finally {
+      setSwappingFace(false);
     }
   }
 
@@ -904,13 +1015,18 @@ export default function CharactersPage() {
                 </div>
 
                 {videoBgType === 'color' && (
-                  <input
-                    type="text"
+                  <select
                     value={videoBgColor}
                     onChange={(e) => setVideoBgColor(e.target.value)}
-                    placeholder="rgb(0,255,0)"
-                    className="w-full px-4 py-2 bg-black border border-zinc-700 rounded-lg"
-                  />
+                    className="w-full px-4 py-2 bg-black border border-zinc-700 rounded-lg focus:outline-none focus:border-green-500"
+                  >
+                    <option value="green">Green (Chroma Key)</option>
+                    <option value="blue">Blue (Chroma Key)</option>
+                    <option value="white">White</option>
+                    <option value="black">Black</option>
+                    <option value="gray">Gray</option>
+                    <option value="red">Red</option>
+                  </select>
                 )}
 
                 {videoBgType === 'image' && (
@@ -1050,13 +1166,18 @@ export default function CharactersPage() {
                 </div>
 
                 {imageBgType === 'color' && (
-                  <input
-                    type="text"
+                  <select
                     value={imageBgColor}
                     onChange={(e) => setImageBgColor(e.target.value)}
-                    placeholder="rgb(255,255,255)"
-                    className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg"
-                  />
+                    className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="white">White</option>
+                    <option value="black">Black</option>
+                    <option value="gray">Gray</option>
+                    <option value="green">Green (Chroma Key)</option>
+                    <option value="blue">Blue (Chroma Key)</option>
+                    <option value="red">Red</option>
+                  </select>
                 )}
 
                 {imageBgType === 'image' && (
@@ -1129,7 +1250,30 @@ export default function CharactersPage() {
 
         {/* Avatar Gallery */}
         <div>
-          <h2 className="text-lg font-bold mb-4">Your Avatars</h2>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+            <h2 className="text-lg font-bold">Your Avatars</h2>
+            <div className="flex flex-col sm:flex-row gap-3">
+              {/* Search box */}
+              <input
+                type="text"
+                placeholder="Search avatars..."
+                value={avatarSearch}
+                onChange={(e) => setAvatarSearch(e.target.value)}
+                className="px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm focus:outline-none focus:border-red-500 w-full sm:w-64"
+              />
+              {/* Show only custom toggle */}
+              <button
+                onClick={() => setShowOnlyCustom(!showOnlyCustom)}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap ${
+                  showOnlyCustom
+                    ? 'bg-red-600 text-white'
+                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                {showOnlyCustom ? '✓ My Avatars Only' : 'My Avatars Only'}
+              </button>
+            </div>
+          </div>
           {loading ? (
             <div className="text-center py-12 text-zinc-500">Loading avatars...</div>
           ) : avatars.length === 0 ? (
@@ -1138,7 +1282,26 @@ export default function CharactersPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {avatars.map((avatar) => (
+              {avatars
+                // Sort: custom avatars with names first, then custom without names, then system avatars
+                .sort((a, b) => {
+                  if (a.type === 'custom' && b.type !== 'custom') return -1;
+                  if (a.type !== 'custom' && b.type === 'custom') return 1;
+                  if (a.name && !b.name) return -1;
+                  if (!a.name && b.name) return 1;
+                  return 0;
+                })
+                // Filter by custom only
+                .filter(avatar => !showOnlyCustom || avatar.type === 'custom')
+                // Filter by search
+                .filter(avatar => {
+                  if (!avatarSearch.trim()) return true;
+                  const search = avatarSearch.toLowerCase();
+                  const name = avatar.name?.toLowerCase() || '';
+                  const id = avatar._id.toLowerCase();
+                  return name.includes(search) || id.includes(search);
+                })
+                .map((avatar) => (
                 <div
                   key={avatar._id}
                   className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden hover:border-red-500 transition-all group"
@@ -1161,10 +1324,22 @@ export default function CharactersPage() {
                   </div>
 
                   <div className="p-4">
-                    <h3 className="font-black text-white text-sm mb-1">Avatar ID: {avatar._id.substring(0, 8)}...</h3>
-                    <p className="text-xs text-zinc-500 mb-3">
-                      {avatar.type === 'custom' ? 'Your Custom Avatar' : 'System Avatar'}
-                    </p>
+                    {avatar.name ? (
+                      <>
+                        <h3 className="font-black text-white text-sm mb-1">{avatar.name}</h3>
+                        <p className="text-xs text-green-400 mb-1 font-mono">@{avatar.name.toLowerCase().replace(/\s+/g, '-')}</p>
+                        <p className="text-xs text-zinc-500 mb-3">
+                          Use @{avatar.name.toLowerCase().replace(/\s+/g, '-')} in prompts
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <h3 className="font-black text-white text-sm mb-1">Avatar {avatar._id.substring(0, 8)}...</h3>
+                        <p className="text-xs text-zinc-500 mb-3">
+                          {avatar.type === 'custom' ? 'Your Custom Avatar' : 'System Avatar'}
+                        </p>
+                      </>
+                    )}
 
                     <div className="flex gap-2 mb-2">
                       <button
@@ -1385,11 +1560,23 @@ export default function CharactersPage() {
                     .map((voice: any) => (
                       <div
                         key={voice.value}
-                        className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 hover:border-blue-500 transition-all"
+                        className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 hover:border-blue-500 transition-all group"
                       >
-                        <div className="flex items-center gap-2 mb-1">
-                          <Mic size={14} className="text-blue-400" />
-                          <h4 className="text-xs font-bold text-white truncate">{voice.label}</h4>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <Mic size={14} className="text-blue-400 flex-shrink-0" />
+                            <h4 className="text-xs font-bold text-white truncate">{voice.label}</h4>
+                          </div>
+                          <button
+                            onClick={() => playVoicePreview(voice.value, voice.preview_url)}
+                            className="p-1.5 rounded-full bg-blue-600 hover:bg-blue-500 transition-colors flex-shrink-0"
+                          >
+                            {playingVoice === voice.value ? (
+                              <Square size={12} className="text-white" />
+                            ) : (
+                              <Play size={12} className="text-white" />
+                            )}
+                          </button>
                         </div>
                         <p className="text-xs text-zinc-500 truncate">ID: {voice.value.substring(0, 8)}...</p>
                       </div>
@@ -1400,16 +1587,114 @@ export default function CharactersPage() {
           )}
         </div>
 
+        {/* Face Swap Tool */}
+        <div className="mt-8">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+            <UserCircle size={20} className="text-orange-500" />
+            Face Swap Tool (10 credits)
+          </h2>
+
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-6 mb-6">
+            <p className="text-sm text-zinc-400 mb-4">
+              Swap a face onto a video. Upload the face image you want to use and the target video (MP4, WebM, or MOV).
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Source Face */}
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-orange-400">
+                  1. Source Face (the face to put on)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setSwapSourceFace(e.target.files?.[0] || null)}
+                  className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-orange-600 file:text-white text-sm"
+                />
+                {swapSourceFace && (
+                  <div className="flex items-center gap-2 text-xs text-green-400">
+                    <CheckCircle size={14} />
+                    {swapSourceFace.name}
+                  </div>
+                )}
+              </div>
+
+              {/* Target Video */}
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-orange-400">
+                  2. Target Video (video to swap face into)
+                </label>
+                <input
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
+                  onChange={(e) => setSwapTargetMedia(e.target.files?.[0] || null)}
+                  className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-orange-600 file:text-white text-sm"
+                />
+                {swapTargetMedia && (
+                  <div className="flex items-center gap-2 text-xs text-green-400">
+                    <CheckCircle size={14} />
+                    {swapTargetMedia.name}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Swap Button */}
+            <div className="mt-6 flex items-center gap-4">
+              <button
+                onClick={handleFaceSwap}
+                disabled={swappingFace || !swapSourceFace || !swapTargetMedia}
+                className="px-6 py-3 bg-orange-600 hover:bg-orange-700 disabled:bg-zinc-700 disabled:cursor-not-allowed rounded-lg font-bold transition-colors flex items-center gap-2"
+              >
+                {swappingFace ? (
+                  <>
+                    <Clock size={18} className="animate-spin" />
+                    Swapping Face...
+                  </>
+                ) : (
+                  <>
+                    <UserCircle size={18} />
+                    Swap Face (10 credits)
+                  </>
+                )}
+              </button>
+
+              {swapResult && (
+                <a
+                  href={swapResult}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-3 bg-green-600 hover:bg-green-700 rounded-lg font-bold transition-colors"
+                >
+                  View Result ↗
+                </a>
+              )}
+            </div>
+
+            {/* Result Preview */}
+            {swapResult && (
+              <div className="mt-4 p-4 bg-zinc-900 border border-green-600/50 rounded-lg">
+                <p className="text-sm text-green-400 mb-2">✅ Face swap complete!</p>
+                {swapResult.includes('.mp4') || swapResult.includes('video') ? (
+                  <video src={swapResult} controls className="max-w-md rounded-lg" />
+                ) : (
+                  <img src={swapResult} alt="Face swap result" className="max-w-md rounded-lg" />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Face Library */}
         <div className="mt-8">
           <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
             <UserCircle size={20} className="text-orange-500" />
-            Face Library (Face Swap)
+            Face Library (Save Faces)
           </h2>
 
           {/* Upload Face */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-6 mb-6">
-            <h3 className="text-sm font-bold mb-3">Add Face for Swapping (3 credits)</h3>
+            <h3 className="text-sm font-bold mb-3">Add Face to Library (3 credits)</h3>
             <p className="text-xs text-zinc-500 mb-4">Upload face images to use for face swapping in videos and images.</p>
             <div className="flex gap-3">
               <input

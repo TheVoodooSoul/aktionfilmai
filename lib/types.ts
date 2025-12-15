@@ -21,10 +21,17 @@ export interface CanvasNode {
     characterRefs?: string[]; // IDs of character references
     environment?: string; // Environment setting
     actionType?: string; // For scene builder and action-pose (punch/kick/takedown)
+    controlnetMode?: 'img2img' | 'scribble' | 'canny' | 'openpose'; // For sketch nodes
   };
   connections?: {
-    next?: string; // ID of next node for sequences
+    next?: string; // ID of next node for sequences (first → last frame)
+    references?: string[]; // IDs of nodes providing reference images (multiple allowed)
+    audioSource?: string; // ID of node providing audio (for lipsync)
   };
+  // For nodes that receive references
+  firstFrame?: string; // URL of first frame (for wan-first-last)
+  lastFrame?: string; // URL of last frame (for wan-first-last)
+  referenceImages?: string[]; // URLs of reference images from connected nodes
 }
 
 export interface CanvasState {

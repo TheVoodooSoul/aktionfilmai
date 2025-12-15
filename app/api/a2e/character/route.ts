@@ -50,11 +50,12 @@ export async function POST(req: NextRequest) {
       const avatarData = await avatarResponse.json();
       const avatarId = avatarData.data?._id;
 
-      // Deduct credits for image avatar (video is free!)
-      if (uploadedImage && userId) {
+      // Deduct credits for avatar training
+      // Video avatar = 10 credits, Image avatar = 30 credits
+      if (userId) {
         const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
         if (!isSuperAdmin) {
-          const creditCost = 30; // Image avatar costs 30 credits
+          const creditCost = uploadedVideo ? 10 : 30; // Video = 10, Image = 30
           const { data: profile } = await supabase
             .from('profiles')
             .select('credits')
@@ -85,8 +86,8 @@ export async function POST(req: NextRequest) {
         avatar_status: 'training',
         status: 'success',
         message: uploadedVideo
-          ? 'Video avatar training started (FREE!)'
-          : 'Image avatar training started',
+          ? 'Video avatar training started (10 credits)'
+          : 'Image avatar training started (30 credits)',
       });
     }
 

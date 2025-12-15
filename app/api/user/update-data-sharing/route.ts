@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { verifyAuth } from '@/lib/api/auth';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,7 +9,24 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authentication
+    const { user, error: authError } = await verifyAuth(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: authError || 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { opt_in, userId } = await request.json();
+
+    // User can only update their own data sharing settings
+    if (userId !== user.id) {
+      return NextResponse.json(
+        { error: 'Cannot modify another user\'s data sharing settings' },
+        { status: 403 }
+      );
+    }
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID required' }, { status: 400 });
