@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
           ...(uploadedVideo ? { video_url: uploadedVideo } : { image_url: uploadedImage }),
           prompt: prompt || 'action character',
           negative_prompt: 'blurry, distorted, low quality',
-          model_version: 'V2.1',
+          model_version: '4.5',
           skipPreview: false,
         }),
       });
@@ -226,7 +226,7 @@ export async function POST(req: NextRequest) {
         image_url: imageUrl,
         prompt: prompt,
         negative_prompt: 'blurry, distorted, low quality',
-        model_version: 'V2.1', // More flexible, high motion, supports wide content
+        model_version: '4.5', // More flexible, high motion, supports wide content
         skipPreview: false, // Set true for "Continue Training" (100 credits, 30min, better lipsync)
       }),
     });

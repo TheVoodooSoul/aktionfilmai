@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
         ...(videoUrl ? { video_url: videoUrl } : { image_url: imageUrl }),
         prompt: description || `action character, ${character.name}`,
         negative_prompt: 'blurry, distorted, low quality',
-        model_version: 'V2.1',
+        model_version: '4.5',
         skipPreview: false,
       }),
     });

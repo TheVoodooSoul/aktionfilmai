@@ -182,8 +182,8 @@ export async function POST(req: NextRequest) {
       if (negativePrompt) {
         requestBody.negative_prompt = negativePrompt;
       }
-      // Use V2.1 by default (best quality)
-      requestBody.model_version = 'V2.1';
+      // Use 4.5 by default (latest version)
+      requestBody.model_version = '4.5';
     }
 
     console.log('A2E Training Request:', requestBody);
