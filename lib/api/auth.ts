@@ -86,7 +86,7 @@ export async function requireAdmin(request: NextRequest): Promise<NextResponse |
   // Check if user is superadmin
   const supabase = createClient(
     supabaseUrl,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_PRIVATE_KEY!
   );
 
   const { data: profile } = await supabase

@@ -7,9 +7,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Server-side client with service role (bypasses RLS) - use only in API routes
 export function getSupabaseAdmin() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey = process.env.SUPABASE_PRIVATE_KEY;
   if (!serviceRoleKey) {
-    console.warn('SUPABASE_SERVICE_ROLE_KEY not set, falling back to anon key');
+    console.warn('SUPABASE_PRIVATE_KEY not set, falling back to anon key');
     return supabase;
   }
   return createClient(supabaseUrl, serviceRoleKey);

@@ -7,10 +7,10 @@ const path = require('path');
 require('dotenv').config({ path: '.env.local' });
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SERVICE_KEY = process.env.SUPABASE_PRIVATE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
-  console.error('❌ Missing env vars: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  console.error('❌ Missing env vars: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_PRIVATE_KEY');
   process.exit(1);
 }
 

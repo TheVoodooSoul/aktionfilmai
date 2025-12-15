@@ -4,11 +4,11 @@ require('dotenv').config({ path: '.env.local' });
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const serviceKey = process.env.SUPABASE_PRIVATE_KEY;
 
 if (!supabaseUrl || !serviceKey) {
   console.error('❌ Missing environment variables');
-  console.error('Need: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
+  console.error('Need: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_PRIVATE_KEY in .env.local');
   process.exit(1);
 }
 
