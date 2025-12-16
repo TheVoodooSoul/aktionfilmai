@@ -45,10 +45,10 @@ const EXPERIENCE_OPTIONS = [
 
 const INTEREST_OPTIONS = [
   'Action/Fight sequences',
-  'Storyboarding',
-  'Character animation',
+  'Storyboarding & scene planning',
   'AI video generation',
   'Script writing / Writers Room',
+  'Character dialogue & improv',
   'All of the above',
 ];
 
@@ -74,6 +74,7 @@ export default function BetaPage() {
   const [discovery, setDiscovery] = useState('');
   const [selectedTier, setSelectedTier] = useState<string | null>(null);
   const [wantsAnnual, setWantsAnnual] = useState(false);
+  const [wantsNewsletter, setWantsNewsletter] = useState(false);
 
   const toggleInterest = (interest: string) => {
     setInterests(prev =>
@@ -97,6 +98,7 @@ export default function BetaPage() {
           discovery,
           selectedTier,
           wantsAnnual,
+          wantsNewsletter,
         }),
       });
 
@@ -199,12 +201,14 @@ export default function BetaPage() {
 
                 <div className="space-y-4 text-zinc-300 leading-relaxed">
                   <p>
-                    Thanks for your interest in the AktionFilmAI beta—built for AI filmmakers and creators
-                    who want action-forward visuals without the endless scavenger hunt.
+                    Thank you for your interest in our upcoming beta. This site has been designed to help AI filmmakers
+                    and other creators make the more action-oriented stuff that's just a pain to hunt down. Everything
+                    in reason—please use restraint when generating. This is a situation where a few bad apples could
+                    ruin it for everyone.
                   </p>
                   <p>
-                    This beta is <strong className="text-white">invite-based</strong> while we stabilize the platform.
-                    Your feedback will directly shape what we build next.
+                    This is a beta—there will be bugs. For the next week or two we'll slowly be inviting people in to
+                    check out what we've got going. <strong className="text-white">Your feedback is invaluable.</strong>
                   </p>
 
                   {/* Use Guidelines */}
@@ -213,15 +217,12 @@ export default function BetaPage() {
                       <AlertTriangle className="text-yellow-500 shrink-0 mt-1" size={20} />
                       <div>
                         <h3 className="font-bold text-yellow-500 mb-2">Use Guidelines (Read Carefully)</h3>
-                        <p className="text-sm text-yellow-200/80 mb-3">
-                          A few bad choices can get the whole party shut down, so we run a tight ship:
-                        </p>
                         <ul className="space-y-2 text-sm text-zinc-400">
-                          <li>• <strong className="text-zinc-300">No real people or public officials</strong> without explicit permission (including lookalikes).</li>
-                          <li>• <strong className="text-zinc-300">No minors</strong> in any sexual, nude, exploitative, or "suggestive" context—ever. Violations may be reported and will result in an immediate ban.</li>
-                          <li>• <strong className="text-zinc-300">No hate content:</strong> racism, sexism, bigotry, or extremist promotion.</li>
-                          <li>• <strong className="text-zinc-300">No glorification of real-world violence.</strong> This tool is for story-driven, purpose-based action that serves a script—not cruelty for clicks.</li>
-                          <li>• When sharing action content publicly, use warnings and post only in communities where it belongs.</li>
+                          <li>• <strong className="text-zinc-300">Do not post violent material</strong> in communities where it doesn't belong without a warning. Use proper tags for your area.</li>
+                          <li>• <strong className="text-zinc-300">No real people or officials</strong> without their permission.</li>
+                          <li>• <strong className="text-zinc-300">Do not generate children</strong> in any compromising situation. This could be met with being reported and will absolutely not be tolerated.</li>
+                          <li>• <strong className="text-zinc-300">No hate, racism, sexism, or general bigotry.</strong> Do not promote hate groups.</li>
+                          <li>• <strong className="text-zinc-300">Violence is real in the world</strong>—we don't need to sensationalize or glorify it. This site is meant as a tool for narrative-style violence that suits a script, has a purpose, and isn't just people fighting.</li>
                         </ul>
                       </div>
                     </div>
@@ -231,13 +232,18 @@ export default function BetaPage() {
                   <div className="bg-green-900/20 border border-green-600/50 rounded-lg p-4">
                     <h3 className="font-bold text-green-500 mb-2">What's Live Right Now</h3>
                     <ul className="space-y-1 text-sm text-zinc-400">
-                      <li>• <strong className="text-zinc-300">Canva-style node generator</strong></li>
-                      <li>• <strong className="text-zinc-300">Writer's Room:</strong> develop scenes, storyboard, and improv with characters in real time (great for dialogue)</li>
+                      <li>• <strong className="text-zinc-300">Canvas</strong> — A node-style generator for building action sequences</li>
+                      <li>• <strong className="text-zinc-300">Writer's Room</strong> — Develop a script or scene, storyboard, and improv with a character. Want to write some great dialogue? Let AI play a character and do improv of the scene in real time. We really want to develop this more.</li>
                     </ul>
                   </div>
 
                   <p className="text-sm text-zinc-500 mt-6">
-                    Click continue to answer a short set of questions, and we'll begin inviting users in waves over the next 1–2 weeks.
+                    Just hit the button below for a short series of questions and we'll be contacting people interested in doing the beta.
+                    We're also running a contest soon—sign up on our Discord for lottery entries and community updates.
+                  </p>
+
+                  <p className="text-sm text-zinc-500">
+                    We're also looking for a few people interested in helping build this platform at different levels.
                   </p>
                 </div>
               </div>
@@ -269,13 +275,13 @@ export default function BetaPage() {
         {/* Step 3: Questions */}
         {step === 3 && (
           <div className="animate-fade-in">
-            <h2 className="text-2xl font-black mb-8 text-center">TELL US ABOUT YOURSELF</h2>
+            <h2 className="text-2xl font-black mb-8 text-center">A FEW QUICK QUESTIONS</h2>
 
             <div className="space-y-8 max-w-2xl mx-auto">
-              {/* Question 1: Experience */}
+              {/* Question 1: What do you do with generative AI */}
               <div>
                 <label className="block text-sm font-bold text-zinc-400 mb-3">
-                  What best describes you?
+                  What do you currently do with generative AI?
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {EXPERIENCE_OPTIONS.map(opt => (
@@ -294,10 +300,10 @@ export default function BetaPage() {
                 </div>
               </div>
 
-              {/* Question 2: Interests (multi-select) */}
+              {/* Question 2: What are you hoping to do with this site */}
               <div>
                 <label className="block text-sm font-bold text-zinc-400 mb-3">
-                  What features interest you most? (select all that apply)
+                  What are you hoping to do with this site? (select all that apply)
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {INTEREST_OPTIONS.map(opt => (
@@ -317,17 +323,17 @@ export default function BetaPage() {
                 </div>
               </div>
 
-              {/* Question 3: Discovery */}
+              {/* Question 3: How useful would a tool like this be */}
               <div>
                 <label className="block text-sm font-bold text-zinc-400 mb-3">
-                  How did you hear about us?
+                  How useful would a tool like this be for you?
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {DISCOVERY_OPTIONS.map(opt => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {['Game-changer for my workflow', 'Very useful', 'Somewhat useful', 'Just exploring'].map(opt => (
                     <button
                       key={opt}
                       onClick={() => setDiscovery(opt)}
-                      className={`px-4 py-3 rounded-lg text-sm transition-all ${
+                      className={`px-4 py-3 rounded-lg text-left transition-all ${
                         discovery === opt
                           ? 'bg-red-600 text-white'
                           : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800'
@@ -337,6 +343,26 @@ export default function BetaPage() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Newsletter signup */}
+              <div className="pt-4 border-t border-zinc-800">
+                <button
+                  onClick={() => setWantsNewsletter(!wantsNewsletter)}
+                  className="w-full p-4 rounded-xl border-2 transition-all flex items-center gap-3 bg-zinc-900 border-zinc-800 hover:border-zinc-700"
+                >
+                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${
+                    wantsNewsletter ? 'bg-red-600 border-red-600' : 'border-zinc-600'
+                  }`}>
+                    {wantsNewsletter && <Check size={12} />}
+                  </div>
+                  <div className="text-left">
+                    <p className="font-bold text-sm">Sign up for our newsletter</p>
+                    <p className="text-xs text-zinc-500">
+                      No spam, ever. We never give your information away. Just opt out at any time.
+                    </p>
+                  </div>
+                </button>
               </div>
             </div>
           </div>

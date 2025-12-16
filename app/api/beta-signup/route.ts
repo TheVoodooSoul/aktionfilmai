@@ -9,7 +9,8 @@ export async function POST(req: NextRequest) {
       interests,
       discovery,
       selectedTier,
-      wantsAnnual
+      wantsAnnual,
+      wantsNewsletter
     } = await req.json();
 
     if (!email || !email.includes('@')) {
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
         discovery: discovery || null,
         selected_tier: selectedTier || 'starter',
         wants_annual: wantsAnnual || false,
+        wants_newsletter: wantsNewsletter || false,
         status: 'pending',
       })
       .select();
