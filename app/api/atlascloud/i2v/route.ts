@@ -4,10 +4,20 @@ import { supabase } from '@/lib/supabase';
 /**
  * AtlasCloud Wan 2.6 Image-to-Video
  * Latest model with 1080p support, up to 15s duration, audio support
+ * Supports LoRAs for action content
  */
 
 const ATLASCLOUD_API_URL = 'https://api.atlascloud.ai/api/v1/model/generateVideo';
 const ATLASCLOUD_POLL_URL = 'https://api.atlascloud.ai/api/v1/model/prediction';
+
+// Action LoRAs for fight moves
+export const ACTION_LORAS = {
+  punch: { name: 'action-punch-lora', weight: 0.8 },
+  kick: { name: 'action-kick-lora', weight: 0.8 },
+  takedown: { name: 'action-takedown-lora', weight: 0.8 },
+  combo: { name: 'action-combo-lora', weight: 0.7 },
+  dodge: { name: 'action-dodge-lora', weight: 0.7 },
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,6 +30,8 @@ export async function POST(req: NextRequest) {
       seed = -1,
       shotType = 'single',
       audio,
+      loras = [],
+      actionType,
       userId,
     } = await req.json();
 
@@ -70,12 +82,20 @@ export async function POST(req: NextRequest) {
         });
     }
 
+    // Build LoRA array
+    const finalLoras = [...loras];
+    if (actionType && ACTION_LORAS[actionType as keyof typeof ACTION_LORAS]) {
+      const actionLora = ACTION_LORAS[actionType as keyof typeof ACTION_LORAS];
+      finalLoras.push(actionLora);
+    }
+
     console.log('AtlasCloud Wan 2.6 I2V Request:', {
       hasImage: !!image,
       prompt: prompt?.substring(0, 50),
       duration,
       resolution,
       shotType,
+      loraCount: finalLoras.length,
     });
 
     // Call AtlasCloud API
@@ -96,6 +116,7 @@ export async function POST(req: NextRequest) {
         shot_type: shotType,
         enable_prompt_expansion: false,
         ...(audio && { audio }),
+        ...(finalLoras.length > 0 && { loras: finalLoras }),
       }),
     });
 
