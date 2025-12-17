@@ -8,8 +8,9 @@ const BETA_TIERS = [
   {
     id: 'starter',
     name: 'Beta Starter',
-    price: 29,
+    price: 20,
     credits: 500,
+    stripeLink: 'https://buy.stripe.com/00waEXdpidpcf1K8Oy3ZK07',
     features: [
       '500 credits to start',
       'Full canvas access',
@@ -21,8 +22,9 @@ const BETA_TIERS = [
   {
     id: 'plus',
     name: 'Beta Plus',
-    price: 40,
+    price: 39.99,
     credits: 1400,
+    stripeLink: 'https://buy.stripe.com/00w00jad6cl87zic0K3ZK08',
     popular: true,
     features: [
       '1,400 credits to start',
@@ -34,6 +36,8 @@ const BETA_TIERS = [
     ],
   },
 ];
+
+const REFILL_LINK = 'https://buy.stripe.com/aFa7sLad684ScTC8Oy3ZK09';
 
 const EXPERIENCE_OPTIONS = [
   'Professional filmmaker',
@@ -137,9 +141,21 @@ export default function BetaPage() {
             <p className="text-2xl font-bold text-red-500">
               {BETA_TIERS.find(t => t.id === selectedTier)?.name}
             </p>
+            <p className="text-3xl font-black text-white mt-2">
+              ${BETA_TIERS.find(t => t.id === selectedTier)?.price}
+            </p>
             {wantsAnnual && (
               <p className="text-green-500 text-sm mt-2">+ 20% annual discount locked in</p>
             )}
+            <a
+              href={BETA_TIERS.find(t => t.id === selectedTier)?.stripeLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 w-full mt-4 px-6 py-4 bg-red-600 hover:bg-red-700 rounded-lg font-bold text-lg transition-colors"
+            >
+              <Zap size={20} />
+              Complete Purchase
+            </a>
           </div>
 
           {/* Newsletter signup via Beehiiv embed */}
@@ -439,13 +455,15 @@ export default function BetaPage() {
 
             {/* Refill Info */}
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 max-w-3xl mx-auto mb-6">
-              <div className="flex items-center gap-3">
-                <Zap className="text-yellow-500" size={20} />
-                <div>
-                  <p className="font-bold text-sm">Need more credits?</p>
-                  <p className="text-xs text-zinc-500">
-                    Credit refills available during beta
-                  </p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Zap className="text-yellow-500" size={20} />
+                  <div>
+                    <p className="font-bold text-sm">Need more credits?</p>
+                    <p className="text-xs text-zinc-500">
+                      Credit refills: $20 for 500 credits
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
