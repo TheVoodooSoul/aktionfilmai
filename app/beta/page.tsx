@@ -123,7 +123,7 @@ export default function BetaPage() {
   if (submitted) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
-        <div className="max-w-lg text-center">
+        <div className="max-w-2xl text-center">
           <div className="w-20 h-20 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
             <Check size={40} />
           </div>
@@ -141,6 +141,24 @@ export default function BetaPage() {
               <p className="text-green-500 text-sm mt-2">+ 20% annual discount locked in</p>
             )}
           </div>
+
+          {/* Newsletter signup via Beehiiv embed */}
+          {wantsNewsletter && (
+            <div className="mb-6">
+              <p className="text-sm text-zinc-400 mb-4">Complete your newsletter signup below:</p>
+              <div className="bg-zinc-900 rounded-xl p-4 overflow-hidden">
+                <iframe
+                  src="https://subscribe-forms.beehiiv.com/bafaf7dc-21e6-4f89-99c5-feb4f210a2a2"
+                  className="beehiiv-embed w-full"
+                  data-test-id="beehiiv-embed"
+                  frameBorder="0"
+                  scrolling="no"
+                  style={{ height: '300px', maxWidth: '100%', background: 'transparent' }}
+                />
+              </div>
+            </div>
+          )}
+
           <a
             href="https://discord.gg/aktionfilmai"
             target="_blank"
