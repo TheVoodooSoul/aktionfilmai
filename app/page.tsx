@@ -111,31 +111,12 @@ export default function HomePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setMessage('');
-
-    try {
-      const response = await fetch('/api/beta-signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setMessage('✓ Successfully joined the fight! Check your email.');
-        setEmail('');
-        // Show consent preferences first
-        setShowConsent(true);
-      } else {
-        setMessage(data.error || 'Failed to sign up');
-      }
-    } catch (error) {
-      setMessage('Network error. Please try again.');
-    } finally {
-      setIsSubmitting(false);
+    if (!email || !email.includes('@')) {
+      setMessage('Please enter a valid email');
+      return;
     }
+    // Redirect to full beta signup flow with email pre-filled
+    router.push(`/beta?email=${encodeURIComponent(email)}`);
   };
 
   const handleCloseModal = () => {

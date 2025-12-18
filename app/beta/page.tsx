@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Zap, Check, Loader2, AlertTriangle, MessageCircle } from 'lucide-react';
 
@@ -66,7 +67,8 @@ const DISCOVERY_OPTIONS = [
   'Other',
 ];
 
-export default function BetaPage() {
+function BetaPageContent() {
+  const searchParams = useSearchParams();
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -78,7 +80,17 @@ export default function BetaPage() {
   const [discovery, setDiscovery] = useState('');
   const [selectedTier, setSelectedTier] = useState<string | null>(null);
   const [wantsAnnual, setWantsAnnual] = useState(false);
+
   const [wantsNewsletter, setWantsNewsletter] = useState(false);
+
+  // Pre-fill email from URL if coming from landing page
+  useEffect(() => {
+    const emailParam = searchParams.get('email');
+    if (emailParam) {
+      setEmail(emailParam);
+      // Keep at step 1 so they see the guidelines, but email will be pre-filled
+    }
+  }, [searchParams]);
 
   const toggleInterest = (interest: string) => {
     setInterests(prev =>
@@ -562,5 +574,18 @@ export default function BetaPage() {
         )}
       </div>
     </div>
+  );
+}
+
+
+export default function BetaPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <Loader2 className="animate-spin" size={32} />
+      </div>
+    }>
+      <BetaPageContent />
+    </Suspense>
   );
 }
