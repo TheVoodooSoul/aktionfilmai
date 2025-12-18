@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { Resend } from 'resend';
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,6 +54,34 @@ export async function POST(req: NextRequest) {
         );
       }
       throw error;
+    }
+
+    // Send email notification to admin
+    if (process.env.RESEND_API_KEY) {
+      try {
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: 'AktionFilmAI <onboarding@resend.dev>',
+          to: 'adam@egopandacreative.com',
+          subject: `🎬 New Beta Signup: ${email}`,
+          html: `
+            <h2>New Beta Signup!</h2>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Selected Tier:</strong> ${tierInfo.name} ($${selectedTier === 'plus' ? '39.99' : '20'})</p>
+            <p><strong>Wants Annual:</strong> ${wantsAnnual ? 'Yes (20% off)' : 'No'}</p>
+            <p><strong>Experience:</strong> ${experience || 'Not specified'}</p>
+            <p><strong>Interests:</strong> ${interests?.join(', ') || 'Not specified'}</p>
+            <p><strong>How Useful:</strong> ${discovery || 'Not specified'}</p>
+            <p><strong>Newsletter:</strong> ${wantsNewsletter ? 'Yes' : 'No'}</p>
+            <hr>
+            <p><a href="https://supabase.com/dashboard/project/bqxxyqlbxyvfuanoiwyh/editor/29548">View in Supabase</a></p>
+          `,
+        });
+        console.log('Admin notification email sent for:', email);
+      } catch (emailError) {
+        // Don't fail the signup if email fails
+        console.error('Failed to send admin notification:', emailError);
+      }
     }
 
     return NextResponse.json({
