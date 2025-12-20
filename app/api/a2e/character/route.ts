@@ -14,80 +14,16 @@ export async function POST(req: NextRequest) {
       hasUploadedVideo: !!uploadedVideo,
     });
 
-    // If user uploaded image/video, skip text-to-image and go straight to avatar training
+    // If user uploaded image/video, just return it - don't auto-train avatar
+    // Let the user decide to train it on the Characters page instead
     if (uploadedImage || uploadedVideo) {
-      const imageUrl = uploadedImage || uploadedVideo; // Use uploaded file
-
-      // Skip to avatar training
-      console.log('Using uploaded file for avatar training:', imageUrl);
-
-      // Jump to avatar training section
-      const avatarResponse = await fetch('https://video.a2e.ai/api/v1/userVideoTwin/startTraining', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.A2E_API_KEY}`,
-          'Content-Type': 'application/json',
-          'x-lang': 'en-US',
-        },
-        body: JSON.stringify({
-          name: `Avatar - ${prompt.substring(0, 50) || 'Uploaded'}`,
-          gender: 'male', // TODO: detect gender
-          ...(uploadedVideo ? { video_url: uploadedVideo } : { image_url: uploadedImage }),
-          prompt: prompt || 'action character',
-          negative_prompt: 'blurry, distorted, low quality',
-          model_version: '4.5',
-          skipPreview: false,
-        }),
-      });
-
-      if (!avatarResponse.ok) {
-        return NextResponse.json({
-          error: 'Avatar training failed',
-          status: 'error',
-        }, { status: 500 });
-      }
-
-      const avatarData = await avatarResponse.json();
-      const avatarId = avatarData.data?._id;
-
-      // Deduct credits for avatar training
-      // Video avatar = 10 credits, Image avatar = 30 credits
-      if (userId) {
-        const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
-        if (!isSuperAdmin) {
-          const creditCost = uploadedVideo ? 75 : 150; // Video = 75, Image = 150 (A2E costs $2-5)
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('credits')
-            .eq('id', userId)
-            .single();
-
-          if (profile && profile.credits >= creditCost) {
-            await supabase
-              .from('profiles')
-              .update({ credits: profile.credits - creditCost })
-              .eq('id', userId);
-
-            await supabase
-              .from('credit_transactions')
-              .insert({
-                user_id: userId,
-                amount: -creditCost,
-                transaction_type: 'avatar',
-                description: 'Image avatar training (A2E)',
-              });
-          }
-        }
-      }
+      const imageUrl = uploadedImage || uploadedVideo;
+      console.log('User uploaded file, returning without auto-training:', imageUrl);
 
       return NextResponse.json({
         output_url: imageUrl,
-        avatar_id: avatarId,
-        avatar_status: 'training',
         status: 'success',
-        message: uploadedVideo
-          ? 'Video avatar training started (10 credits)'
-          : 'Image avatar training started (30 credits)',
+        message: 'Image uploaded successfully. Go to Characters page to train as avatar.',
       });
     }
 
@@ -210,99 +146,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Now train avatar from the generated image using correct A2E endpoint
-    console.log('Training avatar from generated image:', imageUrl);
-
-    const avatarResponse = await fetch('https://video.a2e.ai/api/v1/userVideoTwin/startTraining', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.A2E_API_KEY}`,
-        'Content-Type': 'application/json',
-        'x-lang': 'en-US',
-      },
-      body: JSON.stringify({
-        name: `Avatar - ${prompt.substring(0, 50)}`,
-        gender: 'male', // TODO: detect gender from prompt
-        image_url: imageUrl,
-        prompt: prompt,
-        negative_prompt: 'blurry, distorted, low quality',
-        model_version: '4.5', // More flexible, high motion, supports wide content
-        skipPreview: false, // Set true for "Continue Training" (100 credits, 30min, better lipsync)
-      }),
-    });
-
-    if (!avatarResponse.ok) {
-      console.error('Avatar training failed:', avatarResponse.status);
-      // Return image anyway, avatar training is optional
-      return NextResponse.json({
-        output_url: imageUrl,
-        status: 'success',
-        warning: 'Avatar training failed, image generated successfully',
-      });
-    }
-
-    const avatarData = await avatarResponse.json();
-    console.log('Avatar training started:', avatarData);
-
-    const avatarId = avatarData.data?._id;
-
-    // If waitForAvatar is true, poll for completion (max 5 minutes)
-    if (waitForAvatar && avatarId) {
-      console.log('Polling for avatar completion...');
-      let avatarStatus = 'training';
-      let attempts = 0;
-      const maxAttempts = 60; // 5 minutes (5s intervals)
-
-      while (attempts < maxAttempts && avatarStatus === 'training') {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-
-        const statusResponse = await fetch(`https://video.a2e.ai/api/v1/userVideoTwin/${avatarId}`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${process.env.A2E_API_KEY}`,
-            'x-lang': 'en-US',
-          },
-        });
-
-        if (statusResponse.ok) {
-          const statusData = await statusResponse.json();
-          const status = statusData.data?.status;
-
-          console.log(`Avatar polling attempt ${attempts + 1}: ${status}`);
-
-          if (status === 'completed' || status === 'done') {
-            avatarStatus = 'completed';
-            break;
-          }
-
-          if (status === 'failed' || status === 'error') {
-            avatarStatus = 'failed';
-            break;
-          }
-        }
-
-        attempts++;
-      }
-
-      return NextResponse.json({
-        output_url: imageUrl,
-        avatar_id: avatarId,
-        avatar_status: avatarStatus,
-        status: 'success',
-        message: avatarStatus === 'completed'
-          ? 'Character generated and avatar training completed'
-          : avatarStatus === 'failed'
-          ? 'Character generated but avatar training failed'
-          : 'Character generated, avatar training in progress (timed out)',
-      });
-    }
-
+    // Don't auto-train avatar from scene generations - this was creating junk avatars
+    // Users can manually train avatars from the Characters page
     return NextResponse.json({
       output_url: imageUrl,
-      avatar_id: avatarId,
-      avatar_status: 'training',
+      task_id: taskId,
       status: 'success',
-      message: avatarId ? 'Character generated and avatar training started' : 'Character generated',
+      message: 'Character image generated. Go to Characters page to train as avatar if needed.',
     });
   } catch (error) {
     console.error('A2E character generation error:', error);

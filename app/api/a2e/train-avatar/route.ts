@@ -1,21 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
-import { getSupabaseAdmin } from '@/lib/supabase';
+import { getSupabaseAdmin, supabase as supabaseClient } from '@/lib/supabase';
+
+// Helper to sanitize filename from avatar name
+function sanitizeFileName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')  // Replace non-alphanumeric with dashes
+    .replace(/^-+|-+$/g, '')      // Trim leading/trailing dashes
+    .substring(0, 50);            // Limit length
+}
 
 // Helper to upload base64 to Supabase and get public URL
-async function uploadBase64ToStorage(base64Data: string, folder: string): Promise<string> {
+async function uploadBase64ToStorage(base64Data: string, folder: string, avatarName?: string): Promise<string> {
   const supabaseAdmin = getSupabaseAdmin();
+
+  if (!base64Data) {
+    throw new Error('No base64 data provided to upload');
+  }
 
   // Extract mime type and data
   const matches = base64Data.match(/^data:([^;]+);base64,(.+)$/);
   if (!matches) {
-    throw new Error('Invalid base64 data');
+    console.error('Base64 data format invalid. First 100 chars:', base64Data.substring(0, 100));
+    throw new Error('Invalid base64 data format. Expected data:mime;base64,... format');
   }
 
   const mimeType = matches[1];
   const base64 = matches[2];
+  
+  if (!base64 || base64.length < 100) {
+    throw new Error('Base64 data is too short or empty');
+  }
+
   const buffer = Buffer.from(base64, 'base64');
+  
+  if (buffer.length === 0) {
+    throw new Error('Failed to decode base64 to buffer');
+  }
+
+  console.log('Uploading to storage:', { mimeType, bufferSize: buffer.length, folder, avatarName });
 
   // Determine file extension
   const extMap: Record<string, string> = {
@@ -29,7 +54,9 @@ async function uploadBase64ToStorage(base64Data: string, folder: string): Promis
   };
   const ext = extMap[mimeType] || 'bin';
 
-  const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+  // Use avatar name for filename if provided, otherwise random string
+  const nameSlug = avatarName ? sanitizeFileName(avatarName) : Math.random().toString(36).substring(7);
+  const fileName = `${folder}/${Date.now()}-${nameSlug}.${ext}`;
 
   const { error } = await supabaseAdmin.storage
     .from('character-uploads')
@@ -40,13 +67,14 @@ async function uploadBase64ToStorage(base64Data: string, folder: string): Promis
 
   if (error) {
     console.error('Storage upload error:', error);
-    throw new Error('Failed to upload file: ' + error.message);
+    throw new Error('Failed to upload file to storage: ' + error.message);
   }
 
   const { data: { publicUrl } } = supabaseAdmin.storage
     .from('character-uploads')
     .getPublicUrl(fileName);
 
+  console.log('Upload successful:', publicUrl);
   return publicUrl;
 }
 
@@ -77,26 +105,51 @@ export async function POST(req: NextRequest) {
     let bgImageSource = backgroundImage;
 
     if (videoBase64) {
-      console.log('Uploading video to storage...');
-      videoSource = await uploadBase64ToStorage(videoBase64, `avatars/${userId || 'anonymous'}`);
-      console.log('Video uploaded:', videoSource);
+      try {
+        console.log('Uploading video to storage...');
+        videoSource = await uploadBase64ToStorage(videoBase64, `avatars/${userId || 'anonymous'}`, name);
+        console.log('Video uploaded:', videoSource);
+      } catch (uploadError: any) {
+        console.error('Video upload failed:', uploadError);
+        return NextResponse.json(
+          { error: 'Failed to upload video: ' + uploadError.message },
+          { status: 500 }
+        );
+      }
     }
 
     if (imageBase64) {
-      console.log('Uploading image to storage...');
-      imageSource = await uploadBase64ToStorage(imageBase64, `avatars/${userId || 'anonymous'}`);
-      console.log('Image uploaded:', imageSource);
+      try {
+        console.log('Uploading image to storage, base64 length:', imageBase64.length);
+        imageSource = await uploadBase64ToStorage(imageBase64, `avatars/${userId || 'anonymous'}`, name);
+        console.log('Image uploaded:', imageSource);
+      } catch (uploadError: any) {
+        console.error('Image upload failed:', uploadError);
+        return NextResponse.json(
+          { error: 'Failed to upload image: ' + uploadError.message },
+          { status: 500 }
+        );
+      }
     }
 
     if (backgroundImageBase64) {
-      console.log('Uploading background to storage...');
-      bgImageSource = await uploadBase64ToStorage(backgroundImageBase64, `backgrounds/${userId || 'anonymous'}`);
-      console.log('Background uploaded:', bgImageSource);
+      try {
+        console.log('Uploading background to storage...');
+        bgImageSource = await uploadBase64ToStorage(backgroundImageBase64, `backgrounds/${userId || 'anonymous'}`, `${name}-bg`);
+        console.log('Background uploaded:', bgImageSource);
+      } catch (uploadError: any) {
+        console.error('Background upload failed:', uploadError);
+        // Non-critical, continue without background
+        console.log('Continuing without custom background');
+      }
     }
 
     console.log('Train Avatar Request:', {
       hasVideoSource: !!videoSource,
       hasImageSource: !!imageSource,
+      hasVideoBase64: !!videoBase64,
+      hasImageBase64: !!imageBase64,
+      imageBase64Length: imageBase64?.length || 0,
       name,
       gender,
       hasPrompt: !!prompt,
@@ -105,9 +158,24 @@ export async function POST(req: NextRequest) {
       userId,
     });
 
-    if (!name || !gender || (!videoSource && !imageSource)) {
+    if (!name || !gender) {
       return NextResponse.json(
-        { error: 'name, gender (male/female), and either video or image are required' },
+        { error: 'name and gender (male/female) are required' },
+        { status: 400 }
+      );
+    }
+
+    if (!videoSource && !imageSource) {
+      // More helpful error message
+      const debugInfo = {
+        hadVideoBase64: !!videoBase64,
+        hadImageBase64: !!imageBase64,
+        hadVideoUrl: !!videoUrl,
+        hadImageUrl: !!imageUrl,
+      };
+      console.error('No image/video source available:', debugInfo);
+      return NextResponse.json(
+        { error: `No image or video provided. Debug: ${JSON.stringify(debugInfo)}. Please upload an image or video file.` },
         { status: 400 }
       );
     }
@@ -125,26 +193,28 @@ export async function POST(req: NextRequest) {
     // Determine cost: video = 75 credits, image = 150 credits (A2E costs ~$2-5)
     const cost = videoSource ? 75 : 150;
 
-    // Skip credit check for superadmin
-    const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001';
+    // Skip credit check for superadmin (real admin account)
+    const isSuperAdmin = userId === '00000000-0000-0000-0000-000000000001' || userId === 'ce3d0c1d-d7c3-42da-a538-5405ab32cb23';
 
     if (cost > 0 && userId && !isSuperAdmin) {
-      // Check credits
-      const { data: profile } = await supabase
+      // Check credits (use non-RLS client to avoid auth issues)
+      const { data: profile, error: profileError } = await supabaseClient
         .from('profiles')
         .select('credits')
         .eq('id', userId)
         .single();
 
+      console.log('Profile check:', { userId, credits: profile?.credits, error: profileError?.message });
+
       if (!profile || profile.credits < cost) {
         return NextResponse.json(
-          { error: `Insufficient credits. Need ${cost} credits.` },
+          { error: `Insufficient credits. Need ${cost} credits. You have ${profile?.credits || 0}.` },
           { status: 400 }
         );
       }
 
       // Deduct credits
-      const { error: deductError } = await supabase
+      const { error: deductError } = await supabaseClient
         .from('profiles')
         .update({ credits: profile.credits - cost })
         .eq('id', userId);
@@ -204,15 +274,15 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       // Refund credits on failure
-      if (cost > 0 && userId) {
-        const { data: profile } = await supabase
+      if (cost > 0 && userId && !isSuperAdmin) {
+        const { data: profile } = await supabaseClient
           .from('profiles')
           .select('credits')
           .eq('id', userId)
           .single();
 
         if (profile) {
-          await supabase
+          await supabaseClient
             .from('profiles')
             .update({ credits: profile.credits + cost })
             .eq('id', userId);
@@ -229,15 +299,15 @@ export async function POST(req: NextRequest) {
 
     if (data.code !== 0) {
       // Refund credits on API error
-      if (cost > 0 && userId) {
-        const { data: profile } = await supabase
+      if (cost > 0 && userId && !isSuperAdmin) {
+        const { data: profile } = await supabaseClient
           .from('profiles')
           .select('credits')
           .eq('id', userId)
           .single();
 
         if (profile) {
-          await supabase
+          await supabaseClient
             .from('profiles')
             .update({ credits: profile.credits + cost })
             .eq('id', userId);
@@ -259,6 +329,30 @@ export async function POST(req: NextRequest) {
       cost,
       type: videoSource ? 'video' : 'image',
     });
+
+    // Save avatar ownership to database (private by default)
+    if (avatarId && userId) {
+      const { error: saveError } = await supabase
+        .from('character_references')
+        .upsert({
+          avatar_id: avatarId,
+          user_id: userId,
+          name: name,
+          image_url: imageSource || videoSource,
+          avatar_status: 'training',
+          is_public: false, // Private by default
+          generation_type: 'avatar', // Mark as avatar, not scene/storyboard
+        }, {
+          onConflict: 'avatar_id',
+        });
+
+      if (saveError) {
+        console.error('Failed to save avatar ownership:', saveError);
+        // Don't fail the request, just log the error
+      } else {
+        console.log('Avatar ownership saved:', { avatarId, userId, name });
+      }
+    }
 
     return NextResponse.json({
       avatar_id: avatarId,

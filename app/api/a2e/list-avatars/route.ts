@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
 
 /**
  * A2E List Avatars API
  * Gets all avatars (user's custom + system defaults) AND trained avatars with names
+ * Filters by ownership: shows user's own avatars + public avatars from others
  */
 export async function GET(req: NextRequest) {
   try {
     const searchParams = req.nextUrl.searchParams;
     const type = searchParams.get('type') || ''; // 'custom' or empty for all
 
-    console.log('List Avatars Request:', { type });
+    // Get authenticated user
+    const supabase = createRouteHandlerClient({ cookies });
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id;
+
+    console.log('List Avatars Request:', { type, currentUserId });
 
     const apiKey = process.env.A2E_API_KEY;
     if (!apiKey) {
@@ -102,8 +110,65 @@ export async function GET(req: NextRequest) {
 
     console.log(`Found ${anchors.length} anchors, ${trainedAvatars.length} trained, ${allAvatars.length} total avatars`);
 
+    // Fetch ownership data from our database (only avatars, not scenes/storyboards)
+    const { data: ownedAvatars } = await supabase
+      .from('character_references')
+      .select('avatar_id, user_id, is_public, generation_type')
+      .or('generation_type.eq.avatar,generation_type.is.null');
+
+    // Create a map of avatar_id -> ownership info
+    const ownershipMap = new Map<string, { user_id: string; is_public: boolean }>();
+    for (const owned of (ownedAvatars || [])) {
+      if (owned.avatar_id) {
+        ownershipMap.set(owned.avatar_id, {
+          user_id: owned.user_id,
+          is_public: owned.is_public ?? false,
+        });
+      }
+    }
+
+    // Filter avatars based on ownership:
+    // - Show user's own avatars (regardless of is_public)
+    // - Show public avatars from others (is_public = true)
+    // - Show avatars not in our database (legacy/system avatars)
+    const filteredAvatars = allAvatars.filter(avatar => {
+      const twinId = avatar.user_video_twin_id || avatar._id;
+      const ownership = ownershipMap.get(twinId);
+
+      // If not tracked in our database, show it (system/legacy avatars)
+      if (!ownership) {
+        return true;
+      }
+
+      // Show if user owns it
+      if (ownership.user_id === currentUserId) {
+        return true;
+      }
+
+      // Show if it's public
+      if (ownership.is_public) {
+        return true;
+      }
+
+      // Otherwise hide (belongs to someone else and is private)
+      return false;
+    });
+
+    // Add ownership info to each avatar for UI
+    const avatarsWithOwnership = filteredAvatars.map(avatar => {
+      const twinId = avatar.user_video_twin_id || avatar._id;
+      const ownership = ownershipMap.get(twinId);
+      return {
+        ...avatar,
+        is_owned: ownership?.user_id === currentUserId,
+        is_public: ownership?.is_public ?? true, // Default to public for legacy
+      };
+    });
+
+    console.log(`Filtered to ${avatarsWithOwnership.length} avatars for user ${currentUserId}`);
+
     return NextResponse.json({
-      avatars: allAvatars,
+      avatars: avatarsWithOwnership,
       trained: trainedAvatars, // Also return raw trained list for @mention lookups
     });
   } catch (error) {

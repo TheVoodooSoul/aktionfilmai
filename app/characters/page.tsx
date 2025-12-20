@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Upload, Sparkles, Video, Image as ImageIcon, User, CheckCircle, Clock, AlertCircle, Info, Trash2, Mic, UserCircle, Play, Square } from 'lucide-react';
+import { Upload, Sparkles, Video, Image as ImageIcon, User, CheckCircle, Clock, AlertCircle, Info, Trash2, Mic, UserCircle, Play, Square, Lock, Globe } from 'lucide-react';
 
 interface A2EAvatar {
   _id: string;
@@ -16,6 +16,8 @@ interface A2EAvatar {
   gender?: 'male' | 'female';
   image_url?: string;
   current_status?: string;
+  is_owned?: boolean;
+  is_public?: boolean;
 }
 
 export default function CharactersPage() {
@@ -48,6 +50,7 @@ export default function CharactersPage() {
 
   // Image upload form
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageName, setImageName] = useState('');
   const [imageGender, setImageGender] = useState<'male' | 'female'>('male');
   const [imagePrompt, setImagePrompt] = useState('fixed shot, still background, the person is speaking, clear teeth, natural blink');
@@ -59,6 +62,7 @@ export default function CharactersPage() {
 
   // Continue training state
   const [continuingTraining, setContinuingTraining] = useState<string | null>(null);
+  const [togglingPrivacy, setTogglingPrivacy] = useState<string | null>(null);
 
   // Remove avatar state
   const [removingAvatar, setRemovingAvatar] = useState<string | null>(null);
@@ -336,10 +340,39 @@ export default function CharactersPage() {
   // Helper to convert file to base64
   async function fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
+      if (!file) {
+        reject(new Error('No file provided'));
+        return;
+      }
+
+      console.log('Converting to base64:', file.name, file.size, file.type);
+
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+      
+      reader.onload = () => {
+        const result = reader.result as string;
+        if (!result) {
+          reject(new Error('FileReader returned empty result'));
+          return;
+        }
+        console.log('Base64 conversion successful, length:', result.length);
+        resolve(result);
+      };
+      
+      reader.onerror = () => {
+        console.error('FileReader error:', reader.error);
+        reject(new Error('Failed to read file: ' + (reader.error?.message || 'Unknown read error')));
+      };
+
+      reader.onabort = () => {
+        reject(new Error('File read was aborted'));
+      };
+
+      try {
+        reader.readAsDataURL(file);
+      } catch (e: any) {
+        reject(new Error('Could not start reading file: ' + (e.message || 'Unknown error')));
+      }
     });
   }
 
@@ -398,15 +431,32 @@ export default function CharactersPage() {
       return;
     }
 
+    // Check we have the pre-loaded base64
+    if (!imageBase64) {
+      alert('Image not loaded properly. Please remove and re-select the image.');
+      return;
+    }
+
     setUploadingImage(true);
     try {
-      // Convert image to base64
-      const imageBase64 = await fileToBase64(imageFile);
+      console.log('Starting image upload:', {
+        name: imageFile.name,
+        size: imageFile.size,
+        type: imageFile.type,
+        base64Length: imageBase64.length,
+      });
+
+      // Use the pre-loaded base64 (already converted on file select)
+      if (!imageBase64.startsWith('data:image')) {
+        throw new Error('Invalid image data. Please remove and re-select the image.');
+      }
+
+      console.log('Using pre-loaded base64, length:', imageBase64.length);
 
       // Convert background image if provided
-      let bgImageBase64 = undefined;
+      let bgImageBase64Data = undefined;
       if (imageBgType === 'image' && imageBgImage) {
-        bgImageBase64 = await fileToBase64(imageBgImage);
+        bgImageBase64Data = await fileToBase64(imageBgImage);
       }
 
       // Train avatar
@@ -420,12 +470,14 @@ export default function CharactersPage() {
           prompt: imagePrompt,
           negativePrompt: imageNegativePrompt,
           backgroundColor: imageBgType === 'color' ? imageBgColor : undefined,
-          backgroundImageBase64: bgImageBase64,
+          backgroundImageBase64: bgImageBase64Data,
           userId: user?.id,
         }),
       });
 
       const data = await response.json();
+      console.log('API Response:', data);
+      
       if (!response.ok) {
         throw new Error(data.error || 'Failed to train avatar');
       }
@@ -437,7 +489,7 @@ export default function CharactersPage() {
       loadAvatars();
     } catch (error: any) {
       console.error('Image upload error:', error);
-      alert('Failed to upload image: ' + error.message);
+      alert('Failed to upload image: ' + (error.message || 'Unknown error'));
     } finally {
       setUploadingImage(false);
     }
@@ -474,8 +526,48 @@ export default function CharactersPage() {
     }
   }
 
-  async function handleRemoveAvatar(avatarId: string) {
-    if (!confirm('⚠️ Are you sure you want to permanently delete this avatar? This action cannot be undone and credits will NOT be refunded.')) {
+  async function handleTogglePrivacy(avatarId: string, currentIsPublic: boolean) {
+    const newIsPublic = !currentIsPublic;
+    const action = newIsPublic ? 'make public' : 'make private';
+
+    if (newIsPublic && !confirm(`⚠️ Making this avatar public means other users can see and use it. Continue?`)) {
+      return;
+    }
+
+    setTogglingPrivacy(avatarId);
+    try {
+      const response = await fetch('/api/a2e/toggle-privacy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          avatarId: avatarId,
+          isPublic: newIsPublic,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update privacy');
+      }
+
+      // Update local state
+      setAvatars(prev => prev.map(a =>
+        (a.user_video_twin_id === avatarId || a._id === avatarId)
+          ? { ...a, is_public: newIsPublic }
+          : a
+      ));
+
+      alert(newIsPublic ? '🌐 Avatar is now public' : '🔒 Avatar is now private');
+    } catch (error: any) {
+      console.error('Toggle privacy error:', error);
+      alert('Failed to update privacy: ' + error.message);
+    } finally {
+      setTogglingPrivacy(null);
+    }
+  }
+
+  async function handleRemoveAvatar(avatarId: string, forceHide = false) {
+    if (!forceHide && !confirm('⚠️ Are you sure you want to permanently delete this avatar? This action cannot be undone and credits will NOT be refunded.')) {
       return;
     }
 
@@ -486,15 +578,26 @@ export default function CharactersPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           avatarId: avatarId,
+          forceHide: forceHide,
         }),
       });
 
       const data = await response.json();
       if (!response.ok) {
+        // If A2E delete failed but we can hide it instead
+        if (data.canHide) {
+          const hideInstead = confirm(
+            `${data.error}\n\nWould you like to hide this avatar from your gallery instead? (It will still exist on A2E but won't show here)`
+          );
+          if (hideInstead) {
+            setRemovingAvatar(null);
+            return handleRemoveAvatar(avatarId, true);
+          }
+        }
         throw new Error(data.error || 'Failed to remove avatar');
       }
 
-      alert('✅ Avatar removed successfully');
+      alert(data.hidden ? '✅ Avatar hidden from gallery' : '✅ Avatar removed successfully');
       loadAvatars();
     } catch (error: any) {
       console.error('Remove avatar error:', error);
@@ -952,7 +1055,33 @@ export default function CharactersPage() {
                   <input
                     type="file"
                     accept="video/*"
-                    onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        // Check filename length (without extension)
+                        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+                        if (nameWithoutExt.length > 10) {
+                          const sarcasticMessages = [
+                            "Whoa there, Tolstoy! That filename is a novel. Rename it to 10 characters or less. 📚",
+                            "That's a filename, not a diary entry. Keep it under 10 characters, please. ✂️",
+                            "Did you name this file or write its biography? 10 chars max! 😅",
+                            "I'm an AI, not a speed reader. Shorten that filename to 10 characters. 🏃",
+                            "That filename has more characters than a Marvel movie. Trim it to 10! 🦸",
+                            "File name longer than my attention span. 10 characters max, thanks. 🧠",
+                            "Is that a filename or a URL? Rename it - 10 characters or less! 🔗",
+                            "My therapist says I can't handle long filenames. 10 chars max please. 🛋️",
+                            "That filename is giving me anxiety. Shorten to 10 characters! 😰",
+                            "Even Shakespeare kept his titles short. 10 characters max! 🎭"
+                          ];
+                          const randomMessage = sarcasticMessages[Math.floor(Math.random() * sarcasticMessages.length)];
+                          alert(randomMessage);
+                          e.target.value = '';
+                          return;
+                        }
+                        
+                        setVideoFile(file);
+                      }
+                    }}
                     id="video-upload"
                     className="hidden"
                   />
@@ -965,7 +1094,7 @@ export default function CharactersPage() {
                     ) : (
                       <div>
                         <p className="text-white font-semibold mb-1">Click to upload video</p>
-                        <p className="text-xs text-zinc-500">5-30 seconds, front facing, speaking</p>
+                        <p className="text-xs text-zinc-500">5-30s • Front facing • <span className="text-green-400">Filename ≤10 chars</span></p>
                       </div>
                     )}
                   </label>
@@ -1112,12 +1241,119 @@ export default function CharactersPage() {
 
               <div>
                 <label className="block text-sm font-semibold mb-2">Image File (under 10MB, under 4000px)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
-                  className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-orange-600 file:text-white file:font-semibold hover:file:bg-orange-700"
-                />
+                
+                {/* Image Preview - ABOVE the file input, full width */}
+                {imageFile && imageBase64 && (
+                  <div className="mb-4 p-4 bg-zinc-900 border-2 border-orange-500 rounded-xl">
+                    <div className="flex items-start gap-4">
+                      <div className="relative w-64 h-64 rounded-lg overflow-hidden bg-black flex-shrink-0">
+                        <img
+                          src={imageBase64}
+                          alt={imageFile.name}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                          <span className="text-green-400 font-bold">Image Loaded!</span>
+                        </div>
+                        <p className="text-sm text-zinc-300 mb-1 font-mono truncate">{imageFile.name}</p>
+                        <p className="text-xs text-zinc-500 mb-3">
+                          {(imageFile.size / 1024 / 1024).toFixed(2)} MB • {imageFile.type}
+                        </p>
+                        <button
+                          onClick={() => {
+                            setImageFile(null);
+                            setImageBase64(null);
+                          }}
+                          className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+                        >
+                          <Trash2 size={14} />
+                          Remove Image
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* File Input */}
+                <div className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${
+                  imageFile ? 'border-zinc-700 bg-zinc-900/50' : 'border-zinc-600 hover:border-orange-500 bg-zinc-900'
+                }`}>
+                  <ImageIcon size={48} className="mx-auto mb-3 text-zinc-500" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        // Validate file size (10MB max)
+                        if (file.size > 10 * 1024 * 1024) {
+                          alert('Image too large! Max 10MB allowed.');
+                          return;
+                        }
+                        // Validate file type
+                        if (!file.type.startsWith('image/')) {
+                          alert('Please select an image file (JPG, PNG, WebP, etc.)');
+                          return;
+                        }
+                        
+                        // Check filename length (without extension)
+                        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+                        if (nameWithoutExt.length > 10) {
+                          const sarcasticMessages = [
+                            "Whoa there, Tolstoy! That filename is a novel. Rename it to 10 characters or less. 📚",
+                            "That's a filename, not a diary entry. Keep it under 10 characters, please. ✂️",
+                            "Did you name this file or write its biography? 10 chars max! 😅",
+                            "I'm an AI, not a speed reader. Shorten that filename to 10 characters. 🏃",
+                            "That filename has more characters than a Marvel movie. Trim it to 10! 🦸",
+                            "File name longer than my attention span. 10 characters max, thanks. 🧠",
+                            "Is that a filename or a URL? Rename it - 10 characters or less! 🔗",
+                            "My therapist says I can't handle long filenames. 10 chars max please. 🛋️",
+                            "That filename is giving me anxiety. Shorten to 10 characters! 😰",
+                            "Even Shakespeare kept his titles short. 10 characters max! 🎭"
+                          ];
+                          const randomMessage = sarcasticMessages[Math.floor(Math.random() * sarcasticMessages.length)];
+                          alert(randomMessage);
+                          e.target.value = '';
+                          return;
+                        }
+                        
+                        // Read file to base64 IMMEDIATELY (prevents stale file reference)
+                        try {
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const base64 = reader.result as string;
+                            setImageBase64(base64);
+                            setImageFile(file);
+                            console.log('Image loaded to base64, length:', base64.length);
+                          };
+                          reader.onerror = () => {
+                            alert('Failed to read image file. Please try again.');
+                            e.target.value = '';
+                          };
+                          reader.readAsDataURL(file);
+                        } catch (err) {
+                          alert('Error reading file. Please try again.');
+                          e.target.value = '';
+                        }
+                      }
+                    }}
+                    id="image-upload-input"
+                    className="hidden"
+                  />
+                  <label htmlFor="image-upload-input" className="cursor-pointer">
+                    {imageFile ? (
+                      <p className="text-zinc-400">Click to change image</p>
+                    ) : (
+                      <>
+                        <p className="text-white font-semibold mb-1">Click to upload image</p>
+                        <p className="text-xs text-zinc-500">JPG, PNG, WebP • Max 10MB • <span className="text-orange-400">Filename ≤10 chars</span></p>
+                      </>
+                    )}
+                  </label>
+                </div>
               </div>
 
               {/* Prompt Fields */}
@@ -1316,9 +1552,21 @@ export default function CharactersPage() {
                       }}
                     />
                     {avatar.type === 'custom' && (
-                      <div className="absolute top-2 right-2 px-2 py-1 bg-green-600 rounded-full flex items-center gap-1">
-                        <CheckCircle size={12} />
-                        <span className="text-xs font-bold">READY</span>
+                      <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
+                        <div className="px-2 py-1 bg-green-600 rounded-full flex items-center gap-1">
+                          <CheckCircle size={12} />
+                          <span className="text-xs font-bold">READY</span>
+                        </div>
+                        {avatar.is_owned !== false && (
+                          <div className={`px-2 py-1 rounded-full flex items-center gap-1 ${
+                            avatar.is_public
+                              ? 'bg-blue-600'
+                              : 'bg-zinc-700'
+                          }`}>
+                            {avatar.is_public ? <Globe size={10} /> : <Lock size={10} />}
+                            <span className="text-xs font-bold">{avatar.is_public ? 'PUBLIC' : 'PRIVATE'}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1375,11 +1623,11 @@ export default function CharactersPage() {
                           )}
                         </button>
                         <button
-                          onClick={() => handleRemoveAvatar(avatar._id)}
-                          disabled={removingAvatar === avatar._id}
+                          onClick={() => handleRemoveAvatar(avatar.user_video_twin_id || avatar._id)}
+                          disabled={removingAvatar === (avatar.user_video_twin_id || avatar._id)}
                           className="w-full px-3 py-2 bg-zinc-800 hover:bg-red-600 disabled:bg-zinc-700 disabled:cursor-not-allowed rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1"
                         >
-                          {removingAvatar === avatar._id ? (
+                          {removingAvatar === (avatar.user_video_twin_id || avatar._id) ? (
                             <>
                               <Clock size={12} className="animate-spin" />
                               Removing...
@@ -1391,6 +1639,35 @@ export default function CharactersPage() {
                             </>
                           )}
                         </button>
+                        {/* Privacy Toggle - only show for owned avatars */}
+                        {avatar.is_owned !== false && (
+                          <button
+                            onClick={() => handleTogglePrivacy(avatar.user_video_twin_id || avatar._id, avatar.is_public ?? false)}
+                            disabled={togglingPrivacy === (avatar.user_video_twin_id || avatar._id)}
+                            className={`w-full px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1 ${
+                              avatar.is_public
+                                ? 'bg-green-600/20 border border-green-600 text-green-400 hover:bg-green-600/30'
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+                            }`}
+                          >
+                            {togglingPrivacy === (avatar.user_video_twin_id || avatar._id) ? (
+                              <>
+                                <Clock size={12} className="animate-spin" />
+                                Updating...
+                              </>
+                            ) : avatar.is_public ? (
+                              <>
+                                <Globe size={12} />
+                                Public (click to make private)
+                              </>
+                            ) : (
+                              <>
+                                <Lock size={12} />
+                                Private (click to make public)
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
