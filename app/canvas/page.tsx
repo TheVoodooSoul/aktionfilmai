@@ -1560,7 +1560,7 @@ export default function CanvasPage() {
       try {
         const fileName = `${user.id}/${uuidv4()}.${file.name.split('.').pop()}`;
         const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('character-refs')
+          .from('character-uploads')
           .upload(fileName, file);
 
         if (uploadError) {
@@ -1571,7 +1571,7 @@ export default function CanvasPage() {
         }
 
         const { data: { publicUrl } } = supabase.storage
-          .from('character-refs')
+          .from('character-uploads')
           .getPublicUrl(fileName);
 
         // Try to save to database
