@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
 /**
  * A2E List Avatars API
  * Gets all avatars (user's custom + system defaults) AND trained avatars with names
+ * Also merges in stored image URLs from our character_references table
  */
 export async function GET(req: NextRequest) {
   try {
@@ -19,8 +21,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Fetch both character_list (anchors) and userVideoTwin (trained avatars with names)
-    const [anchorsResponse, trainedResponse] = await Promise.all([
+    // Fetch both character_list (anchors), userVideoTwin (trained avatars), and our stored data
+    const [anchorsResponse, trainedResponse, storedRefs] = await Promise.all([
       // Character list (anchors for video generation)
       fetch('https://video.a2e.ai/api/v1/anchor/character_list' + (type ? `?type=${type}` : ''), {
         headers: { 'Authorization': `Bearer ${apiKey}` },
@@ -29,13 +31,30 @@ export async function GET(req: NextRequest) {
       fetch('https://video.a2e.ai/api/v1/userVideoTwin/list', {
         headers: { 'Authorization': `Bearer ${apiKey}` },
       }),
+      // Our stored character references with reliable Supabase image URLs
+      supabase
+        .from('character_references')
+        .select('avatar_id, image_url, name')
+        .not('avatar_id', 'is', null)
+        .not('image_url', 'is', null),
     ]);
 
     console.log('A2E List Avatars Response status:', anchorsResponse.status);
     console.log('A2E List Trained Response status:', trainedResponse.status);
+    console.log('Stored refs:', storedRefs.data?.length || 0, 'records');
 
     let anchors: any[] = [];
     let trainedAvatars: any[] = [];
+
+    // Build map of our stored image URLs (from Supabase storage - most reliable)
+    const storedImageMap = new Map<string, string>();
+    if (storedRefs.data) {
+      for (const ref of storedRefs.data) {
+        if (ref.avatar_id && ref.image_url) {
+          storedImageMap.set(ref.avatar_id, ref.image_url);
+        }
+      }
+    }
 
     // Parse anchors response
     if (anchorsResponse.ok) {
@@ -67,15 +86,21 @@ export async function GET(req: NextRequest) {
     }
 
     // Merge names into anchors that have matching user_video_twin_id
+    // Priority for image_url: stored (Supabase) > A2E trained > anchor
     const enrichedAvatars = anchors.map(anchor => {
       const twinId = anchor.user_video_twin_id;
+      const anchorId = anchor._id;
       const trainedInfo = twinId ? trainedNameMap.get(twinId) : null;
+
+      // Get our stored image URL (most reliable - from Supabase storage)
+      const storedImageUrl = storedImageMap.get(twinId) || storedImageMap.get(anchorId);
 
       return {
         ...anchor,
         name: trainedInfo?.name || anchor.name || null,
         gender: trainedInfo?.gender || anchor.gender,
-        image_url: trainedInfo?.image_url || anchor.image_url,
+        // Prefer our stored URL, then A2E's, then anchor's
+        image_url: storedImageUrl || trainedInfo?.image_url || anchor.image_url,
         current_status: trainedInfo?.current_status,
       };
     });
@@ -84,19 +109,23 @@ export async function GET(req: NextRequest) {
     const anchorTwinIds = new Set(anchors.map(a => a.user_video_twin_id).filter(Boolean));
     const pendingTrained = trainedAvatars
       .filter(t => !anchorTwinIds.has(t._id))
-      .map(t => ({
-        _id: t._id,
-        name: t.name,
-        type: 'custom' as const,
-        video_cover: t.image_url || '',
-        base_video: '',
-        createdAt: t.createdAt,
-        user_video_twin_id: t._id,
-        gender: t.gender,
-        image_url: t.image_url,
-        current_status: t.current_status,
-        is_training: t.current_status !== 'done' && t.current_status !== 'completed',
-      }));
+      .map(t => {
+        // Prefer our stored image URL
+        const storedUrl = storedImageMap.get(t._id);
+        return {
+          _id: t._id,
+          name: t.name,
+          type: 'custom' as const,
+          video_cover: storedUrl || t.image_url || '',
+          base_video: '',
+          createdAt: t.createdAt,
+          user_video_twin_id: t._id,
+          gender: t.gender,
+          image_url: storedUrl || t.image_url,
+          current_status: t.current_status,
+          is_training: t.current_status !== 'done' && t.current_status !== 'completed',
+        };
+      });
 
     const allAvatars = [...enrichedAvatars, ...pendingTrained];
 

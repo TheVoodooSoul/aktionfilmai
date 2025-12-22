@@ -1308,11 +1308,21 @@ export default function CharactersPage() {
                 >
                   <div className="relative aspect-[2/3] bg-zinc-900">
                     <img
-                      src={avatar.video_cover}
+                      src={avatar.image_url || avatar.video_cover || '/placeholder-avatar.png'}
                       alt={`Avatar ${avatar._id}`}
                       className="w-full h-full object-cover"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = avatar.base_video;
+                        const img = e.target as HTMLImageElement;
+                        // Try fallbacks in order: video_cover -> base_video -> placeholder
+                        if (avatar.video_cover && img.src !== avatar.video_cover) {
+                          img.src = avatar.video_cover;
+                        } else if (avatar.base_video && img.src !== avatar.base_video) {
+                          img.src = avatar.base_video;
+                        } else {
+                          // Show placeholder gradient as last resort
+                          img.style.display = 'none';
+                          img.parentElement?.classList.add('bg-gradient-to-br', 'from-zinc-800', 'to-zinc-900');
+                        }
                       }}
                     />
                     {avatar.type === 'custom' && (
