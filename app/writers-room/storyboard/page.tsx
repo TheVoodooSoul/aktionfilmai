@@ -225,18 +225,29 @@ export default function StoryboardPage() {
         }),
       });
 
-      // For now, create placeholder frames
-      // TODO: Parse AI response into actual frames
-      const placeholderFrames: StoryboardFrame[] = [
-        { id: '1', description: 'Opening shot - establish location', shotType: 'wide', style: selectedStyle as any },
-        { id: '2', description: 'Character enters frame', shotType: 'medium', style: selectedStyle as any },
-        { id: '3', description: 'Close on character reaction', shotType: 'close', style: selectedStyle as any },
-        { id: '4', description: 'Action sequence begins', shotType: 'medium', style: selectedStyle as any },
-      ];
+      if (!response.ok) {
+        const error = await response.json();
+        alert(error.message || 'Failed to break down script');
+        return;
+      }
 
-      setFrames(placeholderFrames);
+      const data = await response.json();
+
+      if (data.frames && Array.isArray(data.frames)) {
+        const parsedFrames: StoryboardFrame[] = data.frames.map((frame: any, index: number) => ({
+          id: String(index + 1),
+          description: frame.description || 'No description',
+          shotType: frame.shotType || 'medium',
+          style: selectedStyle as any,
+          notes: frame.notes,
+        }));
+        setFrames(parsedFrames);
+      } else {
+        alert('AI returned invalid frame data');
+      }
     } catch (error) {
       console.error('Script breakdown error:', error);
+      alert('Failed to break down script. Please try again.');
     } finally {
       setShowAIBreakdown(false);
     }

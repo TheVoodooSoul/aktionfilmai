@@ -134,6 +134,54 @@ Do NOT generate new random ideas. Have an actual conversation:
 Keep it conversational, 2-3 sentences. End with a follow-up question to keep the dialogue going.`;
         break;
 
+      case 'storyboard':
+        // Special case: return structured JSON for storyboard frames (non-streaming)
+        const storyboardResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'system',
+                content: `You are an expert storyboard artist and cinematographer. Break down scripts into visual storyboard frames.
+
+Return ONLY a valid JSON array with 4-8 frames. Each frame must have:
+- description: A vivid visual description for image generation (be specific about composition, lighting, characters)
+- shotType: One of: wide, medium, close, extreme-close, over-shoulder, low-angle, high-angle, dutch
+- notes: Brief director notes (optional)
+
+Example format:
+[
+  {"description": "Dark warehouse interior, single overhead light illuminating a figure in a leather jacket standing center frame, shadows stretching behind", "shotType": "wide", "notes": "Establish mood and location"},
+  {"description": "Close-up of protagonist's face, sweat glistening, eyes focused and determined, shallow depth of field", "shotType": "close", "notes": "Show resolve"}
+]`
+              },
+              {
+                role: 'user',
+                content: `Break down this script/scene into storyboard frames:\n\n${script}`
+              },
+            ],
+            temperature: 0.7,
+            max_tokens: 2000,
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        const storyboardData = await storyboardResponse.json();
+        const content = storyboardData.choices?.[0]?.message?.content;
+
+        try {
+          const parsed = JSON.parse(content);
+          const frames = parsed.frames || parsed;
+          return NextResponse.json({ frames: Array.isArray(frames) ? frames : [] });
+        } catch {
+          return NextResponse.json({ frames: [], error: 'Failed to parse AI response' });
+        }
+
       default:
         prompt = `You are an expert action screenplay writer. Help improve this script:
 
