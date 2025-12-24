@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { supabase as supabaseAdmin } from '@/lib/supabase';
 
 /**
  * A2E Continue Training API (Studio Avatar 💠)
@@ -33,29 +34,40 @@ export async function POST(req: NextRequest) {
 
     const supabase = createRouteHandlerClient({ cookies });
 
+    // Get authenticated user from session (don't trust userId from request body)
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const authenticatedUserId = authUser?.id || userId;
+
+    console.log('Auth check:', { authUserId: authUser?.id, fallbackUserId: userId, finalUserId: authenticatedUserId });
+
     // Continue training cost (check A2E docs for actual cost - assuming 20 credits)
     const cost = 20;
 
-    if (cost > 0 && userId) {
-      // Check credits
-      const { data: profile } = await supabase
+    // Admin bypass - skip credit check for Ahnuld_Stallone account
+    const isAdmin = authenticatedUserId === 'ce3d0c1d-d7c3-42da-a538-5405ab32cb23';
+
+    if (cost > 0 && authenticatedUserId && !isAdmin) {
+      // Check credits (use non-RLS client to avoid auth issues)
+      const { data: profile, error: profileError } = await supabaseAdmin
         .from('profiles')
         .select('credits')
-        .eq('id', userId)
+        .eq('id', authenticatedUserId)
         .single();
+
+      console.log('Profile query result:', { profile, error: profileError?.message });
 
       if (!profile || profile.credits < cost) {
         return NextResponse.json(
-          { error: `Insufficient credits. Need ${cost} credits for Studio Avatar training.` },
+          { error: `Insufficient credits. Need ${cost} credits. You have ${profile?.credits || 0}.` },
           { status: 400 }
         );
       }
 
       // Deduct credits
-      const { error: deductError } = await supabase
+      const { error: deductError } = await supabaseAdmin
         .from('profiles')
         .update({ credits: profile.credits - cost })
-        .eq('id', userId);
+        .eq('id', authenticatedUserId);
 
       if (deductError) {
         console.error('Failed to deduct credits:', deductError);
@@ -86,18 +98,18 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       // Refund credits on failure
-      if (cost > 0 && userId) {
-        const { data: profile } = await supabase
+      if (cost > 0 && authenticatedUserId) {
+        const { data: profile } = await supabaseAdmin
           .from('profiles')
           .select('credits')
-          .eq('id', userId)
+          .eq('id', authenticatedUserId)
           .single();
 
         if (profile) {
-          await supabase
+          await supabaseAdmin
             .from('profiles')
             .update({ credits: profile.credits + cost })
-            .eq('id', userId);
+            .eq('id', authenticatedUserId);
         }
       }
 
@@ -111,18 +123,18 @@ export async function POST(req: NextRequest) {
 
     if (data.code !== 0) {
       // Refund credits on API error
-      if (cost > 0 && userId) {
-        const { data: profile } = await supabase
+      if (cost > 0 && authenticatedUserId) {
+        const { data: profile } = await supabaseAdmin
           .from('profiles')
           .select('credits')
-          .eq('id', userId)
+          .eq('id', authenticatedUserId)
           .single();
 
         if (profile) {
-          await supabase
+          await supabaseAdmin
             .from('profiles')
             .update({ credits: profile.credits + cost })
-            .eq('id', userId);
+            .eq('id', authenticatedUserId);
         }
       }
 

@@ -12,8 +12,8 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function addTestUser() {
   const testUserId = '00000000-0000-0000-0000-000000000001';
-  const testEmail = 'test@aktionfilm.ai';
-  const testPassword = 'test123456';
+  const testEmail = 'Ahnuld_Stallone@aktionfilmai.com';
+  const testPassword = '5t01c903t$';
 
   console.log('Creating/updating test super admin user...\n');
 

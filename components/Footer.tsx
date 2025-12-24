@@ -92,6 +92,26 @@ export default function Footer() {
                   Manage Cookies
                 </a>
               </li>
+              <li>
+                <a
+                  href="https://app.termly.io/policy-viewer/policy.html?policyUUID=55b00b12-62d7-4e11-a1f0-e7d265c9be06"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-white transition-colors"
+                >
+                  Consent Preferences
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://app.termly.io/policy-viewer/policy.html?policyUUID=b0150c04-65da-4f4a-8ccf-26671d116302"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-white transition-colors"
+                >
+                  Do Not Sell My Info
+                </a>
+              </li>
             </ul>
           </div>
         </div>

@@ -674,23 +674,29 @@ export default function CanvasPage() {
         case 'wan-vace':
           // Wan VACE - Video editing with references
           console.log('WAN-VACE - Video editing');
+          if (!node.videoUrl) {
+            alert('Please add a video to the node first');
+            setNodes(nodes.map(n => n.id === node.id ? { ...n, isGenerating: false } : n));
+            return;
+          }
           endpoint = '/api/replicate/wan-vace';
           body.srcVideo = node.videoUrl;
           body.srcRefImages = node.referenceImages || [];
+          body.prompt = processedPrompt;
           break;
 
         case 'wan-t2v':
           // Wan Text to Video (Replicate)
           console.log('WAN-T2V - Text to video');
           endpoint = '/api/replicate/wan-t2v';
-          // processedPrompt already has @name replaced with character info
+          body.prompt = processedPrompt;
           break;
 
         case 'text2video':
           // A2E Text to Video - generate video from prompt
           console.log('TEXT2VIDEO - A2E text to video');
           endpoint = '/api/a2e/text2video';
-          // processedPrompt already has @name replaced with character info
+          body.prompt = processedPrompt;
           break;
 
         default:

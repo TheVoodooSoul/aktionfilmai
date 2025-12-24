@@ -258,6 +258,26 @@ export async function POST(req: NextRequest) {
 
     console.log('A2E Training Request:', requestBody);
 
+    // Verify image URL is accessible before sending to A2E
+    if (imageSource) {
+      try {
+        const checkResponse = await fetch(imageSource, { method: 'HEAD' });
+        console.log('Image URL check:', { url: imageSource, status: checkResponse.status });
+        if (!checkResponse.ok) {
+          return NextResponse.json(
+            { error: `Image URL not accessible (${checkResponse.status}). Storage bucket may not exist. URL: ${imageSource}` },
+            { status: 400 }
+          );
+        }
+      } catch (urlError: any) {
+        console.error('Image URL check failed:', urlError);
+        return NextResponse.json(
+          { error: `Cannot verify image URL: ${urlError.message}. URL: ${imageSource}` },
+          { status: 400 }
+        );
+      }
+    }
+
     const response = await fetch('https://video.a2e.ai/api/v1/userVideoTwin/startTraining', {
       method: 'POST',
       headers: {
