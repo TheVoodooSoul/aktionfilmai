@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     // Check if user has opted in
     const { data: userData, error: userError } = await supabase
-      .from('users')
+      .from('profiles')
       .select('data_sharing_opt_in')
       .eq('id', userId)
       .single();

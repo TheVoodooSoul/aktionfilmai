@@ -1,7 +1,7 @@
 // Canvas Types
 export interface CanvasNode {
   id: string;
-  type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 'v2v' | 't2v' | 'text2video' | 'lipsync' | 'talking-photo' | 'face-swap' | 'action-pose' | 'coherent-scene' | 'wan-i2v' | 'wan-vace' | 'wan-first-last' | 'wan-animate' | 'wan-fast' | 'wan-t2v' | 'nanobanana' | 'image' | 'video';
+  type: 'character' | 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 'v2v' | 't2v' | 'text2video' | 'lipsync' | 'talking-photo' | 'face-swap' | 'action-pose' | 'coherent-scene' | 'wan-i2v' | 'wan-vace' | 'wan-first-last' | 'wan-animate' | 'wan-fast' | 'wan-t2v' | 'nanobanana' | 'atlas-i2v' | 'atlas-t2v' | 'atlas-v2v' | 'atlas-animate' | 'atlas-extend' | 'image' | 'video';
   x: number;
   y: number;
   width: number;

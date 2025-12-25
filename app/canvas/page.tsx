@@ -699,6 +699,72 @@ export default function CanvasPage() {
           body.prompt = processedPrompt;
           break;
 
+        // === ATLASCLOUD SPICY NODES (uncensored action content) ===
+        case 'atlas-i2v':
+          // AtlasCloud Wan 2.6 Spicy - Image to Video
+          console.log('ATLAS-I2V - Spicy Wan image to video');
+          if (!node.imageUrl && !node.imageData) {
+            alert('Please add an image to the node first');
+            setNodes(nodes.map(n => n.id === node.id ? { ...n, isGenerating: false } : n));
+            return;
+          }
+          endpoint = '/api/atlascloud/i2v';
+          body.image = node.imageUrl || node.imageData;
+          body.prompt = processedPrompt;
+          body.actionType = node.settings?.actionType;
+          body.duration = 5;
+          body.resolution = '720p';
+          break;
+
+        case 'atlas-t2v':
+          // AtlasCloud Wan 2.6 Spicy - Text to Video
+          console.log('ATLAS-T2V - Spicy Wan text to video');
+          endpoint = '/api/atlascloud/t2v';
+          body.prompt = processedPrompt;
+          body.actionType = node.settings?.actionType;
+          body.duration = 5;
+          break;
+
+        case 'atlas-v2v':
+          // AtlasCloud Wan 2.6 Spicy - Video to Video
+          console.log('ATLAS-V2V - Spicy Wan video to video');
+          if (!node.videoUrl) {
+            alert('Please add a video to the node first');
+            setNodes(nodes.map(n => n.id === node.id ? { ...n, isGenerating: false } : n));
+            return;
+          }
+          endpoint = '/api/atlascloud/v2v';
+          body.video = node.videoUrl;
+          body.prompt = processedPrompt;
+          body.actionType = node.settings?.actionType;
+          break;
+
+        case 'atlas-animate':
+          // AtlasCloud Animate - Character animation
+          console.log('ATLAS-ANIMATE - Character animation');
+          if (!node.imageUrl && !node.imageData) {
+            alert('Please add an image to the node first');
+            setNodes(nodes.map(n => n.id === node.id ? { ...n, isGenerating: false } : n));
+            return;
+          }
+          endpoint = '/api/atlascloud/animate';
+          body.image = node.imageUrl || node.imageData;
+          body.prompt = processedPrompt;
+          break;
+
+        case 'atlas-extend':
+          // AtlasCloud Video Extend - Extend video scenes
+          console.log('ATLAS-EXTEND - Scene extension');
+          if (!node.videoUrl) {
+            alert('Please add a video to the node first');
+            setNodes(nodes.map(n => n.id === node.id ? { ...n, isGenerating: false } : n));
+            return;
+          }
+          endpoint = '/api/atlascloud/video-extend';
+          body.video = node.videoUrl;
+          body.prompt = processedPrompt;
+          break;
+
         default:
           alert('Unknown node type');
           setIsLoading(false);

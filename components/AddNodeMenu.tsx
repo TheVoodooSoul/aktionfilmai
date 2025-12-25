@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 
 interface AddNodeMenuProps {
-  onAddNode: (type: 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 'v2v' | 't2v' | 'text2video' | 'lipsync' | 'talking-photo' | 'face-swap' | 'action-pose' | 'coherent-scene' | 'wan-i2v' | 'wan-vace' | 'wan-first-last' | 'wan-animate' | 'wan-fast' | 'wan-t2v' | 'nanobanana') => void;
+  onAddNode: (type: 'scene' | 'sketch' | 'i2i' | 't2i' | 'i2v' | 'v2v' | 't2v' | 'text2video' | 'lipsync' | 'talking-photo' | 'face-swap' | 'action-pose' | 'coherent-scene' | 'wan-i2v' | 'wan-vace' | 'wan-first-last' | 'wan-animate' | 'wan-fast' | 'wan-t2v' | 'nanobanana' | 'atlas-i2v' | 'atlas-t2v' | 'atlas-v2v' | 'atlas-animate' | 'atlas-extend') => void;
 }
 
 export default function AddNodeMenu({ onAddNode }: AddNodeMenuProps) {
@@ -34,6 +34,13 @@ export default function AddNodeMenu({ onAddNode }: AddNodeMenuProps) {
     { type: 'wan-animate' as const, icon: '🏃', label: 'Wan Animate', description: 'Animate character (70 credits)', category: 'wan' },
     { type: 'wan-vace' as const, icon: '🎨', label: 'Wan VACE', description: 'Video edit w/ refs (50 credits)', category: 'wan' },
 
+    // === ATLASCLOUD SPICY (uncensored action) ===
+    { type: 'atlas-i2v' as const, icon: '🔥', label: 'Spicy I2V', description: 'Uncensored action video (45 credits)', category: 'spicy' },
+    { type: 'atlas-t2v' as const, icon: '🌶️', label: 'Spicy T2V', description: 'Action text→video (50 credits)', category: 'spicy' },
+    { type: 'atlas-v2v' as const, icon: '💥', label: 'Spicy V2V', description: 'Transform action video (60 credits)', category: 'spicy' },
+    { type: 'atlas-animate' as const, icon: '⚔️', label: 'Spicy Animate', description: 'Fight animation (55 credits)', category: 'spicy' },
+    { type: 'atlas-extend' as const, icon: '➕', label: 'Spicy Extend', description: 'Extend action scene (40 credits)', category: 'spicy' },
+
     // === ACTION & SCENES ===
     { type: 'scene' as const, icon: '🎭', label: 'Scene Builder', description: 'Action scene (A2E - 3 credits)', category: 'scene' },
     { type: 'action-pose' as const, icon: '🥋', label: 'Action Pose', description: 'Fighting pose (Fal - 2 credits)', category: 'scene' },
@@ -44,6 +51,7 @@ export default function AddNodeMenu({ onAddNode }: AddNodeMenuProps) {
     { id: 'image', label: 'Images', color: 'text-blue-400' },
     { id: 'a2e', label: 'A2E Video', color: 'text-green-400' },
     { id: 'wan', label: 'Wan Direct', color: 'text-purple-400' },
+    { id: 'spicy', label: '🔥 Spicy (Uncensored)', color: 'text-red-500' },
     { id: 'scene', label: 'Scenes', color: 'text-orange-400' },
   ];
 
